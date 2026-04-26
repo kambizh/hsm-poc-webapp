@@ -169,7 +169,7 @@
                 </div>
             </div>
             <button class="btn btn-primary" id="btnGenerate" onclick="generateKeyPair()">
-                &#x26A1; Generate Key Pair via HSM
+                Generate Key Pair via HSM
             </button>
             <div id="keygenResult"></div>
         </div>
@@ -204,11 +204,11 @@
             </div>
             <div>
                 <label>Message to Sign</label>
-                <textarea id="signMessage" rows="4" placeholder="Enter the message to sign (any text)...">PayNet RPP DuitNow AutoDebit Test Message - BKRM 2025</textarea>
+                <textarea id="signMessage" rows="4" placeholder="Enter the message to sign (any text)...">PayNet RPP DuitNow AutoDebit Test Message</textarea>
             </div>
             <br>
             <button class="btn btn-primary" id="btnSign" onclick="signMessage()">
-                &#x1F58A;&#xFE0F; Sign Message via HSM
+                 Sign Message via HSM
             </button>
             <div id="signResult"></div>
         </div>
@@ -251,14 +251,14 @@
             </div>
             <div style="margin-top: 12px;">
                 <label>Public Key (DER Hex)
-                    <button class="copy-btn" onclick="fillCorrectKey()" style="margin-left: 8px;">&#x2705; Use Correct Key</button>
-                    <button class="copy-btn" onclick="fillWrongKey()" style="margin-left: 4px;">&#x274C; Use Wrong Key</button>
+                    <button class="copy-btn" onclick="fillCorrectKey()" style="margin-left: 8px;"> Use Correct Key</button>
+                    <button class="copy-btn" onclick="fillWrongKey()" style="margin-left: 4px;"> Use Wrong Key</button>
                 </label>
                 <textarea id="verifyPublicKeyHex" rows="3" placeholder="Paste the public key hex..."></textarea>
             </div>
             <br>
             <button class="btn btn-primary" id="btnVerifyCorrect" onclick="verifySignature()">
-                &#x1F50D; Verify Signature via HSM
+                 Verify Signature via HSM
             </button>
             <div id="verifyResult"></div>
         </div>
@@ -312,13 +312,13 @@
 Duration: ${data.durationMs}ms | Modulus: RSA-${data.modulusBits}
 Public Key: ${data.publicKeyLength} bytes | Private Key: ${data.privateKeyLength} bytes (LMK-encrypted)</div>
 
-                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">&#x1F4CB; HSM Command Flow</h3>
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);"> HSM Command Flow</h3>
                     <ul class="flow-list">${data.hsmFlow.map(f => '<li>' + f + '</li>').join('')}</ul>
 
-                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">&#x1F511; Public Key (DER Hex)</h3>
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">Public Key (DER Hex)</h3>
                     <div class="hex-display">${data.publicKeyHex}</div>
 
-                    <h3 style="margin-top: 12px; font-size: 14px; color: var(--text);">&#x1F512; Private Key (LMK-Encrypted, truncated)</h3>
+                    <h3 style="margin-top: 12px; font-size: 14px; color: var(--text);"> Private Key (LMK-Encrypted, truncated)</h3>
                     <div class="hex-display">${data.privateKeyHex}</div>
                 `;
             } else {
@@ -332,7 +332,7 @@ Public Key: ${data.publicKeyLength} bytes | Private Key: ${data.privateKeyLength
         }
 
         btn.disabled = false;
-        btn.innerHTML = '&#x26A1; Generate Key Pair via HSM';
+        btn.innerHTML = 'Generate Key Pair via HSM';
     }
 
     // ===== SIGNING =====
@@ -367,13 +367,13 @@ Public Key: ${data.publicKeyLength} bytes | Private Key: ${data.privateKeyLength
 Duration: ${data.durationMs}ms | Hash: ${data.hashAlgorithm} | Pad: ${data.padMode}
 Message: ${data.messageLength} bytes → Signature: ${data.signatureLength} bytes</div>
 
-                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">&#x1F4CB; HSM Command Flow</h3>
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);"> HSM Command Flow</h3>
                     <ul class="flow-list">${data.hsmFlow.map(f => '<li>' + f + '</li>').join('')}</ul>
 
-                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">&#x1F4DD; Message (Hex)</h3>
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);"> Message (Hex)</h3>
                     <div class="hex-display">${data.messageHex}</div>
 
-                    <h3 style="margin-top: 12px; font-size: 14px; color: var(--text);">&#x270D;&#xFE0F; Digital Signature (Hex)</h3>
+                    <h3 style="margin-top: 12px; font-size: 14px; color: var(--text);"> Digital Signature (Hex)</h3>
                     <div class="hex-display">${data.signatureHex}</div>
                 `;
             } else {
@@ -384,7 +384,7 @@ Message: ${data.messageLength} bytes → Signature: ${data.signatureLength} byte
         }
 
         btn.disabled = false;
-        btn.innerHTML = '&#x1F58A;&#xFE0F; Sign Message via HSM';
+        btn.innerHTML = ' Sign Message via HSM';
     }
 
     // ===== VERIFICATION =====
@@ -415,7 +415,7 @@ Message: ${data.messageLength} bytes → Signature: ${data.signatureLength} byte
 
             if (data.success) {
                 const verdictClass = data.valid ? 'verdict-valid' : 'verdict-invalid';
-                const verdictIcon = data.valid ? '&#x2705;' : '&#x274C;';
+                const verdictIcon = data.valid ? '' : '';
 
                 div.innerHTML = `
                     <div class="verdict ${verdictClass}">
@@ -430,7 +430,7 @@ HSM Response Details:
   Duration: ${data.durationMs}ms
   Raw Response (Hex): ${data.rawResponseHex}</div>
 
-                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">&#x1F4CB; HSM Command Flow</h3>
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);"> HSM Command Flow</h3>
                     <ul class="flow-list">${data.hsmFlow.map(f => '<li>' + f + '</li>').join('')}</ul>
                 `;
             } else {
@@ -441,7 +441,7 @@ HSM Response Details:
         }
 
         btn.disabled = false;
-        btn.innerHTML = '&#x1F50D; Verify Signature via HSM';
+        btn.innerHTML = ' Verify Signature via HSM';
     }
 
     // Fill public key fields

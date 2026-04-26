@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
+import my.com.kambiz.hsm.command.DiagnosticCommands;
 
 /**
  * Web controller for the payShield 10K HSM POC.
@@ -56,6 +57,7 @@ public class HsmPocController {
         try {
             int modulusBits = (int) request.getOrDefault("modulusBits", 2048);
             log.info("API: Generate key pair, {} bits", modulusBits);
+            log.info("modulusBits value from UI: {}", modulusBits);
 
             KeyGenerationResult result = hsmService.generateKeyPair(modulusBits);
             this.lastKeyPair = result;
@@ -296,6 +298,83 @@ public class HsmPocController {
         }
 
         response.put("poolStats", hsmService.getPoolStats());
+        return ResponseEntity.ok(response);
+    }
+
+    // ===== DIAGNOSTIC ENDPOINTS =====
+    // Add these methods to your HsmPocController class
+
+    /**
+     * NC - Perform Diagnostics (no authorization required)
+     * Tests processor, software, LMK. Returns LMK check value + firmware.
+     * GET /api/diagnostics
+     */
+    @GetMapping("/api/diagnostics")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> performDiagnostics() {
+        Map<String, Object> response = new LinkedHashMap<>();
+        long start = System.currentTimeMillis();
+
+        try {
+            log.info("API: Perform Diagnostics (NC command)");
+            String header = "0000"; // or use properties.getHeaderLength()
+
+            // Build and send NC command
+            byte[] ncCmd = DiagnosticCommands.buildNC(header);
+            log.debug("NC command hex: {}", CommandUtils.bytesToHex(ncCmd));
+
+            byte[] ncResp = hsmService.executeRaw(ncCmd);
+            Map<String, String> result = DiagnosticCommands.parseNCResponse(ncResp, 4);
+
+            response.put("success", "OK".equals(result.get("status")));
+            response.putAll(result);
+            response.put("durationMs", System.currentTimeMillis() - start);
+
+        } catch (Exception e) {
+            log.error("Diagnostics failed", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.status(500).body(response);
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * NO - HSM Status (no authorization required)
+     * Returns HSM status: firmware, buffer size, sockets, ethernet type.
+     * GET /api/hsm-status
+     */
+    @GetMapping("/api/hsm-status")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> getHsmStatus() {
+        Map<String, Object> response = new LinkedHashMap<>();
+        long start = System.currentTimeMillis();
+
+        try {
+            log.info("API: HSM Status (NO command)");
+            String header = "0000";
+
+            // Build and send NO command with mode 00
+            byte[] noCmd = DiagnosticCommands.buildNO(header, "00");
+            log.debug("NO command hex: {}", CommandUtils.bytesToHex(noCmd));
+
+            byte[] noResp = hsmService.executeRaw(noCmd);
+            Map<String, String> result = DiagnosticCommands.parseNOResponse(noResp, 4);
+
+            response.put("success", "OK".equals(result.get("status")));
+            response.putAll(result);
+            response.put("durationMs", System.currentTimeMillis() - start);
+
+        } catch (Exception e) {
+            log.error("HSM Status failed", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.status(500).body(response);
+        }
+
         return ResponseEntity.ok(response);
     }
 
