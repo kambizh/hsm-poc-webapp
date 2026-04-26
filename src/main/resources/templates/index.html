@@ -124,11 +124,11 @@
 <body>
 
 <div class="header">
-    <h1>&#x1F3E6; PayShield 10K — HSM Integration POC
+    <h1>PayShield 10K — HSM Integration POC
         <span class="badge">payShield 1.7a</span>
         <span class="badge">RPP Integration</span>
     </h1>
-    <p>Bank Rakyat Malaysia &bull; iMochaRPPGateway &bull; payshield-crypto-client v1.0.0</p>
+    <p>iMocha RPP Gateway &bull; payshield-crypto-client v1.0.0</p>
 </div>
 
 <div class="main">
@@ -153,7 +153,7 @@
     <!-- ===== TAB 1: KEY GENERATION ===== -->
     <div class="panel active" id="panel-keygen">
         <div class="card">
-            <h2><span class="icon">&#x1F511;</span> Generate RSA Key Pair (EI + LA + EO Commands)</h2>
+            <h2><span class="icon"></span> Generate RSA Key Pair (EI + LA + EO Commands)</h2>
             <p style="color: var(--text-dim); font-size: 13px; margin-bottom: 16px;">
                 Generates an RSA key pair inside the HSM. The private key never leaves the HSM boundary —
                 it is returned LMK-encrypted and stored in HSM User Storage slot K000.
@@ -178,7 +178,7 @@
     <!-- ===== TAB 2: SIGNING ===== -->
     <div class="panel" id="panel-sign">
         <div class="card">
-            <h2><span class="icon">&#x270D;&#xFE0F;</span> Sign Message (EW Command)</h2>
+            <h2><span class="icon"></span> Sign Message (EW Command)</h2>
             <p style="color: var(--text-dim); font-size: 13px; margin-bottom: 16px;">
                 Signs a message using the RSA private key stored in HSM User Storage (K000).
                 The HSM internally retrieves the key, decrypts it under LMK, computes the hash, and generates the signature.
@@ -217,7 +217,7 @@
     <!-- ===== TAB 3: VERIFICATION ===== -->
     <div class="panel" id="panel-verify">
         <div class="card">
-            <h2><span class="icon">&#x1F50D;</span> Verify Signature (EO + EY Commands)</h2>
+            <h2><span class="icon"></span> Verify Signature (EO + EY Commands)</h2>
             <p style="color: var(--text-dim); font-size: 13px; margin-bottom: 16px;">
                 Verifies a signature using a public key. First imports the public key (EO) to get its MAC,
                 then verifies (EY). Test with the correct key and a wrong key to see the HSM's different responses.
