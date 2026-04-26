@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PayShield 10K HSM POC - BKRM RPP Integration</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --surface2: #232736;
+            --border: #2e3348;
+            --text: #e2e4eb;
+            --text-dim: #8b90a5;
+            --accent: #4f8cf7;
+            --accent-dim: #2d5aa0;
+            --green: #34d399;
+            --green-bg: rgba(52,211,153,0.08);
+            --red: #f87171;
+            --red-bg: rgba(248,113,113,0.08);
+            --yellow: #fbbf24;
+            --yellow-bg: rgba(251,191,36,0.08);
+            --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+            --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.6; }
+
+        .header {
+            background: linear-gradient(135deg, #1a237e 0%, #0d47a1 50%, #01579b 100%);
+            padding: 24px 32px;
+            border-bottom: 1px solid var(--border);
+        }
+        .header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+        .header p { color: rgba(255,255,255,0.7); font-size: 13px; margin-top: 4px; }
+        .header .badge { display: inline-block; background: rgba(255,255,255,0.15); color: #fff;
+            padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 8px; }
+
+        .main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 2px; margin-bottom: 24px; background: var(--surface); border-radius: 10px; padding: 4px; }
+        .tab { flex: 1; padding: 12px 16px; text-align: center; border-radius: 8px; cursor: pointer;
+            font-size: 14px; font-weight: 500; color: var(--text-dim); transition: all 0.2s; border: none; background: none; }
+        .tab:hover { color: var(--text); background: var(--surface2); }
+        .tab.active { color: #fff; background: var(--accent); }
+        .tab .step-num { display: inline-block; width: 22px; height: 22px; line-height: 22px;
+            border-radius: 50%; font-size: 11px; font-weight: 700; margin-right: 6px;
+            background: rgba(255,255,255,0.15); }
+        .tab.active .step-num { background: rgba(255,255,255,0.25); }
+
+        .panel { display: none; }
+        .panel.active { display: block; }
+
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+            padding: 24px; margin-bottom: 20px; }
+        .card h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .card h2 .icon { font-size: 20px; }
+
+        label { display: block; font-size: 13px; font-weight: 500; color: var(--text-dim); margin-bottom: 6px; }
+        select, input[type="text"], textarea {
+            width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border);
+            border-radius: 8px; color: var(--text); font-size: 14px; font-family: var(--sans);
+            transition: border-color 0.2s;
+        }
+        select:focus, input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+        textarea { font-family: var(--mono); font-size: 12px; resize: vertical; }
+
+        .row { display: flex; gap: 16px; margin-bottom: 16px; }
+        .row > * { flex: 1; }
+
+        .btn { padding: 12px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px; }
+        .btn-primary { background: var(--accent); color: #fff; }
+        .btn-primary:hover { background: #3d78e0; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+        .btn-secondary:hover { background: var(--border); }
+        .btn-danger { background: #dc2626; color: #fff; }
+        .btn-danger:hover { background: #b91c1c; }
+
+        .result-box { margin-top: 16px; padding: 16px; border-radius: 8px; font-family: var(--mono);
+            font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 400px;
+            overflow-y: auto; line-height: 1.7; }
+        .result-success { background: var(--green-bg); border: 1px solid rgba(52,211,153,0.2); color: var(--green); }
+        .result-error { background: var(--red-bg); border: 1px solid rgba(248,113,113,0.2); color: var(--red); }
+        .result-info { background: var(--yellow-bg); border: 1px solid rgba(251,191,36,0.2); color: var(--yellow); }
+        .result-neutral { background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); }
+
+        .verdict { padding: 16px 20px; border-radius: 10px; text-align: center; margin-top: 16px; }
+        .verdict-valid { background: var(--green-bg); border: 2px solid var(--green); }
+        .verdict-valid h3 { color: var(--green); font-size: 20px; }
+        .verdict-invalid { background: var(--red-bg); border: 2px solid var(--red); }
+        .verdict-invalid h3 { color: var(--red); font-size: 20px; }
+        .verdict p { margin-top: 8px; font-size: 13px; color: var(--text-dim); }
+
+        .flow-list { list-style: none; padding: 0; }
+        .flow-list li { padding: 8px 12px; border-left: 3px solid var(--accent-dim); margin-bottom: 4px;
+            font-size: 13px; background: var(--surface2); border-radius: 0 6px 6px 0; }
+        .flow-list li:nth-child(even) { border-left-color: var(--accent); }
+
+        .hex-display { font-family: var(--mono); font-size: 11px; background: var(--bg); padding: 12px;
+            border-radius: 6px; word-break: break-all; max-height: 120px; overflow-y: auto;
+            border: 1px solid var(--border); margin-top: 4px; color: var(--accent); }
+
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .status-dot.green { background: var(--green); }
+        .status-dot.red { background: var(--red); }
+        .status-dot.yellow { background: var(--yellow); }
+
+        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%; border-top-color: #fff; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .info-bar { display: flex; gap: 24px; padding: 12px 16px; background: var(--surface2);
+            border-radius: 8px; margin-bottom: 20px; font-size: 12px; color: var(--text-dim); }
+        .info-bar span { display: flex; align-items: center; gap: 4px; }
+
+        .copy-btn { background: none; border: 1px solid var(--border); color: var(--text-dim);
+            padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+        .copy-btn:hover { color: var(--text); border-color: var(--text-dim); }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>&#x1F3E6; PayShield 10K — HSM Integration POC
+        <span class="badge">payShield 1.7a</span>
+        <span class="badge">RPP Integration</span>
+    </h1>
+    <p>Bank Rakyat Malaysia &bull; iMochaRPPGateway &bull; payshield-crypto-client v1.0.0</p>
+</div>
+
+<div class="main">
+    <div class="info-bar" id="infoBar">
+        <span><span class="status-dot yellow" id="connDot"></span> HSM: <span id="connStatus">Not connected</span></span>
+        <span>Pool: <span id="poolStats">—</span></span>
+        <span>Key Pair: <span id="keyStatus">None</span></span>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" onclick="showTab('keygen')">
+            <span class="step-num">1</span> Generate Key Pair
+        </button>
+        <button class="tab" onclick="showTab('sign')">
+            <span class="step-num">2</span> Sign Message
+        </button>
+        <button class="tab" onclick="showTab('verify')">
+            <span class="step-num">3</span> Verify Signature
+        </button>
+    </div>
+
+    <!-- ===== TAB 1: KEY GENERATION ===== -->
+    <div class="panel active" id="panel-keygen">
+        <div class="card">
+            <h2><span class="icon">&#x1F511;</span> Generate RSA Key Pair (EI + LA + EO Commands)</h2>
+            <p style="color: var(--text-dim); font-size: 13px; margin-bottom: 16px;">
+                Generates an RSA key pair inside the HSM. The private key never leaves the HSM boundary —
+                it is returned LMK-encrypted and stored in HSM User Storage slot K000.
+            </p>
+            <div class="row">
+                <div>
+                    <label>RSA Modulus Length (bits)</label>
+                    <select id="modulusBits">
+                        <option value="1024">1024 (fast, testing only)</option>
+                        <option value="2048" selected>2048 (PayNet standard)</option>
+                        <option value="4096">4096 (high security)</option>
+                    </select>
+                </div>
+            </div>
+            <button class="btn btn-primary" id="btnGenerate" onclick="generateKeyPair()">
+                &#x26A1; Generate Key Pair via HSM
+            </button>
+            <div id="keygenResult"></div>
+        </div>
+    </div>
+
+    <!-- ===== TAB 2: SIGNING ===== -->
+    <div class="panel" id="panel-sign">
+        <div class="card">
+            <h2><span class="icon">&#x270D;&#xFE0F;</span> Sign Message (EW Command)</h2>
+            <p style="color: var(--text-dim); font-size: 13px; margin-bottom: 16px;">
+                Signs a message using the RSA private key stored in HSM User Storage (K000).
+                The HSM internally retrieves the key, decrypts it under LMK, computes the hash, and generates the signature.
+            </p>
+            <div class="row">
+                <div>
+                    <label>Hash Algorithm</label>
+                    <select id="signHashId">
+                        <option value="01">SHA-1 (01)</option>
+                        <option value="05">SHA-224 (05)</option>
+                        <option value="06" selected>SHA-256 (06) — PayNet RPP</option>
+                        <option value="07">SHA-384 (07)</option>
+                        <option value="08">SHA-512 (08)</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Pad Mode</label>
+                    <select id="signPadMode">
+                        <option value="01" selected>PKCS#1 v1.5 (01)</option>
+                        <option value="04">PSS (04)</option>
+                    </select>
+                </div>
+            </div>
+            <div>
+                <label>Message to Sign</label>
+                <textarea id="signMessage" rows="4" placeholder="Enter the message to sign (any text)...">PayNet RPP DuitNow AutoDebit Test Message - BKRM 2025</textarea>
+            </div>
+            <br>
+            <button class="btn btn-primary" id="btnSign" onclick="signMessage()">
+                &#x1F58A;&#xFE0F; Sign Message via HSM
+            </button>
+            <div id="signResult"></div>
+        </div>
+    </div>
+
+    <!-- ===== TAB 3: VERIFICATION ===== -->
+    <div class="panel" id="panel-verify">
+        <div class="card">
+            <h2><span class="icon">&#x1F50D;</span> Verify Signature (EO + EY Commands)</h2>
+            <p style="color: var(--text-dim); font-size: 13px; margin-bottom: 16px;">
+                Verifies a signature using a public key. First imports the public key (EO) to get its MAC,
+                then verifies (EY). Test with the correct key and a wrong key to see the HSM's different responses.
+            </p>
+            <div class="row">
+                <div>
+                    <label>Hash Algorithm</label>
+                    <select id="verifyHashId">
+                        <option value="01">SHA-1 (01)</option>
+                        <option value="05">SHA-224 (05)</option>
+                        <option value="06" selected>SHA-256 (06)</option>
+                        <option value="07">SHA-384 (07)</option>
+                        <option value="08">SHA-512 (08)</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Pad Mode</label>
+                    <select id="verifyPadMode">
+                        <option value="01" selected>PKCS#1 v1.5 (01)</option>
+                        <option value="04">PSS (04)</option>
+                    </select>
+                </div>
+            </div>
+            <div>
+                <label>Original Message</label>
+                <textarea id="verifyMessage" rows="3" placeholder="The original message that was signed..."></textarea>
+            </div>
+            <div style="margin-top: 12px;">
+                <label>Signature (Hex)</label>
+                <textarea id="verifySignatureHex" rows="3" placeholder="Paste the signature hex from Step 2..."></textarea>
+            </div>
+            <div style="margin-top: 12px;">
+                <label>Public Key (DER Hex)
+                    <button class="copy-btn" onclick="fillCorrectKey()" style="margin-left: 8px;">&#x2705; Use Correct Key</button>
+                    <button class="copy-btn" onclick="fillWrongKey()" style="margin-left: 4px;">&#x274C; Use Wrong Key</button>
+                </label>
+                <textarea id="verifyPublicKeyHex" rows="3" placeholder="Paste the public key hex..."></textarea>
+            </div>
+            <br>
+            <button class="btn btn-primary" id="btnVerifyCorrect" onclick="verifySignature()">
+                &#x1F50D; Verify Signature via HSM
+            </button>
+            <div id="verifyResult"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // State
+    let state = { publicKeyHex: null, signatureHex: null, signedMessage: null };
+
+    // Tab switching
+    function showTab(name) {
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.getElementById('panel-' + name).classList.add('active');
+        event.currentTarget.classList.add('active');
+    }
+
+    // Fetch helper
+    async function apiCall(url, body) {
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        return await resp.json();
+    }
+
+    // ===== KEY GENERATION =====
+    async function generateKeyPair() {
+        const btn = document.getElementById('btnGenerate');
+        const div = document.getElementById('keygenResult');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Generating...';
+        div.innerHTML = '<div class="result-box result-neutral">Sending EI command to HSM... This may take a few seconds for RSA-2048/4096.</div>';
+
+        try {
+            const data = await apiCall('/api/generate-keypair', {
+                modulusBits: parseInt(document.getElementById('modulusBits').value)
+            });
+
+            if (data.success) {
+                state.publicKeyHex = data.publicKeyHex;
+                document.getElementById('keyStatus').textContent = 'RSA-' + data.modulusBits + ' ✓';
+                document.getElementById('connDot').className = 'status-dot green';
+                document.getElementById('connStatus').textContent = 'Connected';
+                document.getElementById('poolStats').textContent = data.poolStats;
+
+                div.innerHTML = `
+                    <div class="result-box result-success"> KEY PAIR GENERATED SUCCESSFULLY
+Duration: ${data.durationMs}ms | Modulus: RSA-${data.modulusBits}
+Public Key: ${data.publicKeyLength} bytes | Private Key: ${data.privateKeyLength} bytes (LMK-encrypted)</div>
+
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">&#x1F4CB; HSM Command Flow</h3>
+                    <ul class="flow-list">${data.hsmFlow.map(f => '<li>' + f + '</li>').join('')}</ul>
+
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">&#x1F511; Public Key (DER Hex)</h3>
+                    <div class="hex-display">${data.publicKeyHex}</div>
+
+                    <h3 style="margin-top: 12px; font-size: 14px; color: var(--text);">&#x1F512; Private Key (LMK-Encrypted, truncated)</h3>
+                    <div class="hex-display">${data.privateKeyHex}</div>
+                `;
+            } else {
+                document.getElementById('connDot').className = 'status-dot red';
+                div.innerHTML = `<div class="result-box result-error"> KEY GENERATION FAILED\n\n${data.error}\n\nError Code: ${data.errorCode || 'N/A'}\nDuration: ${data.durationMs}ms</div>`;
+            }
+        } catch (e) {
+            document.getElementById('connDot').className = 'status-dot red';
+            document.getElementById('connStatus').textContent = 'Error';
+            div.innerHTML = `<div class="result-box result-error"> CONNECTION ERROR\n\n${e.message}\n\nMake sure:\n1. payShield HSM is reachable at the configured host:port\n2. The host command port is open\n3. The header length matches HSM configuration</div>`;
+        }
+
+        btn.disabled = false;
+        btn.innerHTML = '&#x26A1; Generate Key Pair via HSM';
+    }
+
+    // ===== SIGNING =====
+    async function signMessage() {
+        const btn = document.getElementById('btnSign');
+        const div = document.getElementById('signResult');
+        const message = document.getElementById('signMessage').value;
+
+        if (!message) { alert('Please enter a message to sign.'); return; }
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Signing...';
+        div.innerHTML = '<div class="result-box result-neutral">Sending EW command to HSM...</div>';
+
+        try {
+            const data = await apiCall('/api/sign', {
+                message: message,
+                hashId: document.getElementById('signHashId').value,
+                padMode: document.getElementById('signPadMode').value
+            });
+
+            if (data.success) {
+                state.signatureHex = data.signatureHex;
+                state.signedMessage = message;
+
+                // Auto-fill verification tab
+                document.getElementById('verifyMessage').value = message;
+                document.getElementById('verifySignatureHex').value = data.signatureHex;
+
+                div.innerHTML = `
+                    <div class="result-box result-success"> MESSAGE SIGNED SUCCESSFULLY
+Duration: ${data.durationMs}ms | Hash: ${data.hashAlgorithm} | Pad: ${data.padMode}
+Message: ${data.messageLength} bytes → Signature: ${data.signatureLength} bytes</div>
+
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">&#x1F4CB; HSM Command Flow</h3>
+                    <ul class="flow-list">${data.hsmFlow.map(f => '<li>' + f + '</li>').join('')}</ul>
+
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">&#x1F4DD; Message (Hex)</h3>
+                    <div class="hex-display">${data.messageHex}</div>
+
+                    <h3 style="margin-top: 12px; font-size: 14px; color: var(--text);">&#x270D;&#xFE0F; Digital Signature (Hex)</h3>
+                    <div class="hex-display">${data.signatureHex}</div>
+                `;
+            } else {
+                div.innerHTML = `<div class="result-box result-error"> SIGNING FAILED\n\n${data.error}\n\nError Code: ${data.errorCode || 'N/A'}\nDuration: ${data.durationMs}ms</div>`;
+            }
+        } catch (e) {
+            div.innerHTML = `<div class="result-box result-error"> ERROR\n\n${e.message}</div>`;
+        }
+
+        btn.disabled = false;
+        btn.innerHTML = '&#x1F58A;&#xFE0F; Sign Message via HSM';
+    }
+
+    // ===== VERIFICATION =====
+    async function verifySignature() {
+        const btn = document.getElementById('btnVerifyCorrect');
+        const div = document.getElementById('verifyResult');
+        const message = document.getElementById('verifyMessage').value;
+        const sigHex = document.getElementById('verifySignatureHex').value.trim();
+        const pubKeyHex = document.getElementById('verifyPublicKeyHex').value.trim();
+
+        if (!message || !sigHex || !pubKeyHex) {
+            alert('Please fill in all fields: message, signature, and public key.');
+            return;
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Verifying...';
+        div.innerHTML = '<div class="result-box result-neutral">Sending EO + EY commands to HSM...</div>';
+
+        try {
+            const data = await apiCall('/api/verify', {
+                message: message,
+                signatureHex: sigHex,
+                publicKeyHex: pubKeyHex,
+                hashId: document.getElementById('verifyHashId').value,
+                padMode: document.getElementById('verifyPadMode').value
+            });
+
+            if (data.success) {
+                const verdictClass = data.valid ? 'verdict-valid' : 'verdict-invalid';
+                const verdictIcon = data.valid ? '&#x2705;' : '&#x274C;';
+
+                div.innerHTML = `
+                    <div class="verdict ${verdictClass}">
+                        <h3>${verdictIcon} ${data.verdict}</h3>
+                        <p>${data.explanation}</p>
+                    </div>
+
+                    <div class="result-box ${data.valid ? 'result-success' : 'result-error'}" style="margin-top: 12px;">
+HSM Response Details:
+  Error Code: ${data.errorCode}
+  Description: ${data.errorDescription}
+  Duration: ${data.durationMs}ms
+  Raw Response (Hex): ${data.rawResponseHex}</div>
+
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">&#x1F4CB; HSM Command Flow</h3>
+                    <ul class="flow-list">${data.hsmFlow.map(f => '<li>' + f + '</li>').join('')}</ul>
+                `;
+            } else {
+                div.innerHTML = `<div class="result-box result-error"> VERIFICATION COMMAND FAILED\n\n${data.error}\n\nError Code: ${data.errorCode || 'N/A'}\nDuration: ${data.durationMs}ms</div>`;
+            }
+        } catch (e) {
+            div.innerHTML = `<div class="result-box result-error"> ERROR\n\n${e.message}</div>`;
+        }
+
+        btn.disabled = false;
+        btn.innerHTML = '&#x1F50D; Verify Signature via HSM';
+    }
+
+    // Fill public key fields
+    function fillCorrectKey() {
+        if (state.publicKeyHex) {
+            document.getElementById('verifyPublicKeyHex').value = state.publicKeyHex;
+        } else {
+            alert('No key pair generated yet. Go to Step 1 first.');
+        }
+    }
+
+    function fillWrongKey() {
+        // Generate a fake public key (just corrupt the real one, or use a hardcoded dummy)
+        if (state.publicKeyHex) {
+            // Corrupt the public key by flipping some bytes in the middle
+            let wrongKey = state.publicKeyHex;
+            let mid = Math.floor(wrongKey.length / 2);
+            wrongKey = wrongKey.substring(0, mid - 8) + 'DEADBEEFCAFEBABE' + wrongKey.substring(mid + 8);
+            document.getElementById('verifyPublicKeyHex').value = wrongKey;
+        } else {
+            // Use a minimal dummy DER public key
+            document.getElementById('verifyPublicKeyHex').value =
+                '30820122300D06092A864886F70D01010105000382010F003082010A02820101' +
+                '00DEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABE' +
+                'DEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABE' +
+                'DEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABE' +
+                'DEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABE' +
+                'DEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABE' +
+                'DEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABE' +
+                'DEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABE' +
+                'AB0203010001';
+        }
+    }
+
+    // Load state on page load
+    async function loadState() {
+        try {
+            const resp = await fetch('/api/state');
+            const data = await resp.json();
+            if (data.hasKeyPair) {
+                state.publicKeyHex = data.publicKeyHex;
+                document.getElementById('keyStatus').textContent = 'RSA-' + data.modulusBits + ' ✓';
+                document.getElementById('connDot').className = 'status-dot green';
+                document.getElementById('connStatus').textContent = 'Connected';
+            }
+            if (data.hasSignature) {
+                state.signatureHex = data.signatureHex;
+                state.signedMessage = data.signedMessage;
+                document.getElementById('verifyMessage').value = data.signedMessage || '';
+                document.getElementById('verifySignatureHex').value = data.signatureHex || '';
+            }
+            document.getElementById('poolStats').textContent = data.poolStats || '—';
+        } catch (e) { /* ignore on first load */ }
+    }
+    loadState();
+</script>
+
+</body>
+</html>
