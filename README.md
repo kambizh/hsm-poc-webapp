@@ -8,6 +8,9 @@ This application serves as a Proof of Concept (POC) UI layer to verify integrati
 
 The goal is to demonstrate end-to-end interaction with the HSM while keeping the application logic minimal.
 
+## How to start
+nohup java -jar hsm-poc-webapp-1.0.0-SNAPSHOT.jar &
+
 ## Features
 
 - Input arbitrary message data
