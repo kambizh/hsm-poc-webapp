@@ -153,10 +153,10 @@
     <!-- ===== TAB 1: KEY GENERATION ===== -->
     <div class="panel active" id="panel-keygen">
         <div class="card">
-            <h2><span class="icon"></span> Generate RSA Key Pair (EI + LA + EO Commands)</h2>
+            <h2><span class="icon"></span> Generates an RSA key pair inside the HSM.</h2>
             <p style="color: var(--text-dim); font-size: 13px; margin-bottom: 16px;">
-                Generates an RSA key pair inside the HSM. The private key never leaves the HSM boundary —
-                it is returned LMK-encrypted and stored in HSM User Storage slot K000.
+                The private key never leaves the HSM in plaintext. 
+                it is returned as an LMK-encrypted key blob for use in signing operations.
             </p>
             <div class="row">
                 <div>
