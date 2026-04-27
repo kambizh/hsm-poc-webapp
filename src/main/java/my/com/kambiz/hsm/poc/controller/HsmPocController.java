@@ -76,9 +76,9 @@ public class HsmPocController {
             response.put("hsmFlow", List.of(
                     "1. EI command → HSM generated RSA-" + modulusBits + " key pair internally",
                     "2. HSM returned: Public key (DER-encoded, " + result.getPublicKeyDer().length + " bytes) + Private key (LMK-encrypted, " + result.getPrivateKeyLength() + " bytes)",
-                    "3. LA command → LMK-encrypted private key stored in HSM user storage at index K000",
-                    "4. EO command → Public key imported, MAC generated for future verification",
-                    "NOTE: Private key NEVER leaves the HSM in cleartext - only LMK-encrypted form is handled"
+                    "3. Application stores key material (public + LMK blob)",
+                    "4. Future operations (EW) will use the LMK-encrypted private key",
+                    "NOTE: Key material never leaves the HSM boundary"
             ));
 
         } catch (PayShieldException e) {
@@ -151,8 +151,8 @@ public class HsmPocController {
                     "   - Signature Algorithm: RSA (ID: 01)",
                     "   - Pad Mode: " + result.getPadMode() + " (ID: " + padMode + ")",
                     "   - Message: " + messageBytes.length + " bytes",
-                    "   - Private Key: referenced by K000 in HSM user storage (flag=91)",
-                    "2. HSM internally: retrieved LMK-encrypted key from K000 → decrypted under LMK → computed hash → signed",
+                    "   - Private Key: LMK-encrypted key blob provided inline (flag=99)",
+                    "2. HSM internally: decrypted LMK-encrypted key blob under LMK → computed hash → signed",
                     "3. HSM returned: Digital signature (" + result.getSignatureLength() + " bytes)",
                     "NOTE: Private key was decrypted ONLY inside HSM tamper-resistant boundary"
             ));
