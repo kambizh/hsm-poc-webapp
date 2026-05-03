@@ -148,6 +148,9 @@
         <button class="tab" onclick="showTab('verify')">
             <span class="step-num">3</span> Verify Signature
         </button>
+        <button class="tab" onclick="showTab('csr')">
+            <span class="step-num">4</span> Generate CSR
+        </button>
     </div>
 
     <!-- ===== TAB 1: KEY GENERATION ===== -->
@@ -261,6 +264,82 @@
                  Verify Signature via HSM
             </button>
             <div id="verifyResult"></div>
+        </div>
+    </div>
+
+    <!-- ===== TAB 4: CSR GENERATION ===== -->
+    <div class="panel" id="panel-csr">
+        <div class="card">
+            <h2><span class="icon"></span> Generate Certificate Signing Request (QE Command)</h2>
+            <p style="color: var(--text-dim); font-size: 13px; margin-bottom: 16px;">
+                Generates a PKCS#10 CSR entirely inside the HSM using the QE command.
+                The HSM constructs the CSR structure, signs it with the private key, and returns the complete CSR.
+                No Bouncy Castle or external crypto library needed.
+                Requires a key pair to be generated first (Step 1).
+            </p>
+
+            <h3 style="font-size: 14px; margin-bottom: 12px; color: var(--accent);">Subject Fields</h3>
+            <div class="row">
+                <div>
+                    <label>Common Name (CN)</label>
+                    <input type="text" id="csrCN" value="bkrm.paynet.my" placeholder="e.g., bkrm.paynet.my">
+                </div>
+                <div>
+                    <label>Country (C) — 2-char ISO</label>
+                    <input type="text" id="csrC" value="MY" maxlength="2" placeholder="e.g., MY">
+                </div>
+            </div>
+            <div class="row">
+                <div>
+                    <label>Organization (O)</label>
+                    <input type="text" id="csrO" value="Bank Kerjasama Rakyat Malaysia Berhad" placeholder="e.g., Bank Kerjasama Rakyat Malaysia Berhad">
+                </div>
+                <div>
+                    <label>Organizational Unit (OU)</label>
+                    <input type="text" id="csrOU" value="IT Department" placeholder="e.g., IT Department">
+                </div>
+            </div>
+            <div class="row">
+                <div>
+                    <label>Locality (L)</label>
+                    <input type="text" id="csrL" value="Kuala Lumpur" placeholder="e.g., Kuala Lumpur">
+                </div>
+                <div>
+                    <label>State (ST)</label>
+                    <input type="text" id="csrST" value="Wilayah Persekutuan" placeholder="e.g., Wilayah Persekutuan">
+                </div>
+            </div>
+
+            <h3 style="font-size: 14px; margin: 16px 0 12px; color: var(--accent);">Crypto Parameters</h3>
+            <div class="row">
+                <div>
+                    <label>Hash Algorithm</label>
+                    <select id="csrHashId">
+                        <option value="01">SHA-1 (01)</option>
+                        <option value="06" selected>SHA-256 (06) — PayNet RPP</option>
+                        <option value="07">SHA-384 (07)</option>
+                        <option value="08">SHA-512 (08)</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Pad Mode</label>
+                    <select id="csrPadMode">
+                        <option value="01" selected>PKCS#1 v1.5 (01)</option>
+                        <option value="04">PSS (04)</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Output Format</label>
+                    <select id="csrOutputFormat">
+                        <option value="0" selected>PEM (Base64)</option>
+                        <option value="1">DER (Hex)</option>
+                    </select>
+                </div>
+            </div>
+            <button class="btn btn-primary" id="btnGenerateCsr" onclick="generateCsr()">
+                Generate CSR via HSM
+            </button>
+            <div id="csrResult"></div>
         </div>
     </div>
 </div>
@@ -442,6 +521,65 @@ HSM Response Details:
 
         btn.disabled = false;
         btn.innerHTML = ' Verify Signature via HSM';
+    }
+
+    // ===== CSR GENERATION =====
+    async function generateCsr() {
+        const btn = document.getElementById('btnGenerateCsr');
+        const div = document.getElementById('csrResult');
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Generating CSR...';
+        div.innerHTML = '<div class="result-box result-neutral">Sending QE command to HSM...</div>';
+
+        try {
+            const data = await apiCall('/api/generate-csr', {
+                commonName: document.getElementById('csrCN').value,
+                organization: document.getElementById('csrO').value,
+                orgUnit: document.getElementById('csrOU').value,
+                locality: document.getElementById('csrL').value,
+                state: document.getElementById('csrST').value,
+                country: document.getElementById('csrC').value,
+                hashId: document.getElementById('csrHashId').value,
+                padMode: document.getElementById('csrPadMode').value,
+                outputFormat: document.getElementById('csrOutputFormat').value
+            });
+
+            if (data.success) {
+                const subj = data.subject;
+                div.innerHTML = `
+                    <div class="result-box result-success"> CSR GENERATED SUCCESSFULLY
+Duration: ${data.durationMs}ms | Format: ${data.outputFormat}
+CSR Size: ${data.csrLength} bytes
+Subject: CN=${subj.CN}, O=${subj.O}, OU=${subj.OU}, L=${subj.L}, ST=${subj.ST}, C=${subj.C}</div>
+
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);"> HSM Command Flow</h3>
+                    <ul class="flow-list">${data.hsmFlow.map(f => '<li>' + f + '</li>').join('')}</ul>
+
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);"> Certificate Signing Request</h3>
+                    <div style="position: relative;">
+                        <button class="copy-btn" onclick="copyCsr()" style="position: absolute; top: 8px; right: 8px;">Copy CSR</button>
+                        <div class="hex-display" id="csrOutput" style="max-height: 300px; color: var(--green); white-space: pre-wrap;">${data.csrData}</div>
+                    </div>
+                `;
+            } else {
+                div.innerHTML = `<div class="result-box result-error"> CSR GENERATION FAILED\n\n${data.error}\n\nError Code: ${data.errorCode || 'N/A'}\nDuration: ${data.durationMs}ms</div>`;
+            }
+        } catch (e) {
+            div.innerHTML = `<div class="result-box result-error"> ERROR\n\n${e.message}</div>`;
+        }
+
+        btn.disabled = false;
+        btn.innerHTML = 'Generate CSR via HSM';
+    }
+
+    function copyCsr() {
+        const csrText = document.getElementById('csrOutput').textContent;
+        navigator.clipboard.writeText(csrText).then(() => {
+            const btn = event.currentTarget;
+            btn.textContent = 'Copied!';
+            setTimeout(() => { btn.textContent = 'Copy CSR'; }, 2000);
+        });
     }
 
     // Fill public key fields
