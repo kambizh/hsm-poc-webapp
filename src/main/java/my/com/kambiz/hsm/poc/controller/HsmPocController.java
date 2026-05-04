@@ -319,6 +319,98 @@ public class HsmPocController {
         return ResponseEntity.ok(response);
     }
 
+    // ===== CSR GENERATION =====
+
+    /**
+     * Generate a Certificate Signing Request (CSR) via HSM QE command.
+     * Requires Key Block LMK mode and an existing key pair.
+     *
+     * POST /api/generate-csr
+     * Body: {
+     *   "commonName": "BKRM-RPP-SIGNING",
+     *   "organization": "Bank Kerjasama Rakyat Malaysia Berhad",
+     *   "orgUnit": "IT",
+     *   "locality": "Kuala Lumpur",
+     *   "state": "Wilayah Persekutuan",
+     *   "country": "MY",
+     *   "pemOutput": true
+     * }
+     */
+    @PostMapping("/api/generate-csr")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> generateCsr(@RequestBody Map<String, Object> request) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        long start = System.currentTimeMillis();
+
+        try {
+            String commonName = (String) request.getOrDefault("commonName", "BKRM-RPP-SIGNING");
+            String organization = (String) request.getOrDefault("organization", "Bank Kerjasama Rakyat Malaysia Berhad");
+            String orgUnit = (String) request.getOrDefault("orgUnit", "IT");
+            String locality = (String) request.getOrDefault("locality", "Kuala Lumpur");
+            String state = (String) request.getOrDefault("state", "Wilayah Persekutuan");
+            String country = (String) request.getOrDefault("country", "MY");
+            boolean pemOutput = (boolean) request.getOrDefault("pemOutput", true);
+
+            LmkMode mode = hsmService.getLmkMode();
+            log.info("API: Generate CSR, CN={}, LMK mode: {}", commonName, mode);
+
+            if (lastKeyPair == null) {
+                response.put("success", false);
+                response.put("error", "No key pair generated yet. Please generate a key pair first.");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            CsrGenerationResult result = hsmService.generateCsr(
+                    commonName, organization, orgUnit, locality, state, country, pemOutput);
+
+            response.put("success", true);
+            response.put("timestamp", Instant.now().toString());
+            response.put("lmkMode", mode.getValue());
+            response.put("csrLength", result.getCsrLength());
+            response.put("csrFormat", pemOutput ? "PEM" : "HexDER");
+            response.put("csrData", result.isPem() ? result.getFormattedPem() : result.getCsrData());
+            response.put("durationMs", System.currentTimeMillis() - start);
+
+            // Subject DN
+            Map<String, String> subject = new LinkedHashMap<>();
+            subject.put("CN", commonName);
+            subject.put("O", organization);
+            subject.put("OU", orgUnit);
+            subject.put("L", locality);
+            subject.put("ST", state);
+            subject.put("C", country);
+            response.put("subjectDN", subject);
+
+            response.put("hsmFlow", List.of(
+                    "1. QE command sent to HSM with:",
+                    "   - CSR Type: PKCS#10",
+                    "   - Public Key: " + lastKeyPair.getPublicKeyDer().length + " bytes (DER)",
+                    "   - Private Key: " + lastKeyPair.getPrivateKeyLmkEncrypted().length + " bytes (S-prefixed Key Block)",
+                    "   - Hash: SHA-256, Pad: PKCS#1 v1.5",
+                    "   - Subject: CN=" + commonName + ", O=" + organization + ", C=" + country,
+                    "2. HSM internally: built PKCS#10 TBS structure → signed with private key",
+                    "3. HSM returned: Complete CSR (" + result.getCsrLength() + " chars, " + (pemOutput ? "PEM" : "HexDER") + ")",
+                    "NOTE: Private key NEVER left the HSM — CSR was fully assembled inside HSM"
+            ));
+
+        } catch (PayShieldException e) {
+            log.error("HSM error during CSR generation", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("errorCode", e.getErrorCode());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.status(500).body(response);
+        } catch (Exception e) {
+            log.error("Unexpected error during CSR generation", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.status(500).body(response);
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
     // ===== DIAGNOSTIC ENDPOINTS =====
 
     @GetMapping("/api/diagnostics")

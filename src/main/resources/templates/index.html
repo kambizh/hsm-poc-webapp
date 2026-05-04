@@ -546,10 +546,10 @@ HSM Response Details:
             });
 
             if (data.success) {
-                const subj = data.subject;
+                const subj = data.subjectDN;
                 div.innerHTML = `
                     <div class="result-box result-success"> CSR GENERATED SUCCESSFULLY
-Duration: ${data.durationMs}ms | Format: ${data.outputFormat}
+Duration: ${data.durationMs}ms | Format: Format: ${data.csrFormat}
 CSR Size: ${data.csrLength} bytes
 Subject: CN=${subj.CN}, O=${subj.O}, OU=${subj.OU}, L=${subj.L}, ST=${subj.ST}, C=${subj.C}</div>
 
