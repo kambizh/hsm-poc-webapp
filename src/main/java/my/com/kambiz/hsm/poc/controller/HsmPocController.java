@@ -146,7 +146,11 @@ public class HsmPocController {
                     message.length(), hashId, padMode, mode);
 
             byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
-            SigningResult result = hsmService.signMessage(messageBytes, hashId, padMode);
+            SigningResult result = hsmService.signMessage(
+                    messageBytes,
+                    lastKeyPair.getPrivateKeyLmkEncrypted(),
+                    lastKeyPair.isKeyBlock(),
+                    hashId, padMode);
             this.lastSignature = result;
             this.lastSignedMessage = message;
 
@@ -349,7 +353,8 @@ public class HsmPocController {
             String locality = (String) request.getOrDefault("locality", "Kuala Lumpur");
             String state = (String) request.getOrDefault("state", "Wilayah Persekutuan");
             String country = (String) request.getOrDefault("country", "MY");
-            boolean pemOutput = (boolean) request.getOrDefault("pemOutput", true);
+            String outputFormatStr = (String) request.getOrDefault("outputFormat", "0");
+            boolean pemOutput = "0".equals(outputFormatStr);
 
             LmkMode mode = hsmService.getLmkMode();
             log.info("API: Generate CSR, CN={}, LMK mode: {}", commonName, mode);
@@ -361,6 +366,8 @@ public class HsmPocController {
             }
 
             CsrGenerationResult result = hsmService.generateCsr(
+                    lastKeyPair.getPublicKeyDer(),
+                    lastKeyPair.getPrivateKeyLmkEncrypted(),
                     commonName, organization, orgUnit, locality, state, country, pemOutput);
 
             response.put("success", true);
