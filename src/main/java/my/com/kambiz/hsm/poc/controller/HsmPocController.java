@@ -149,7 +149,6 @@ public class HsmPocController {
             SigningResult result = hsmService.signMessage(
                     messageBytes,
                     lastKeyPair.getPrivateKeyLmkEncrypted(),
-                    lastKeyPair.isKeyBlock(),
                     hashId, padMode);
             this.lastSignature = result;
             this.lastSignedMessage = message;
