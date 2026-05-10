@@ -1,3 +1,6 @@
+<img width="764" height="820" alt="1" src="https://github.com/user-attachments/assets/1c35e026-d748-4975-8f77-cc1fb2d3cfd9" />
+
+
 # hsm-poc-webapp
 
 A lightweight Spring Boot web application used to demonstrate and validate HSM-based cryptographic operations using the `payshield-crypto-client` library.
