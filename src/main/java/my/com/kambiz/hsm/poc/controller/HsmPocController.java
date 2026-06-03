@@ -72,7 +72,7 @@ public class HsmPocController {
             response.put("publicKeyHex", result.getPublicKeyHex());
             response.put("publicKeyLength", result.getPublicKeyDer().length);
             response.put("privateKeyLength", result.getPrivateKeyLength());
-            response.put("privateKeyHex", truncateHex(result.getPrivateKeyHex(), 64));
+            response.put("privateKeyHex", result.getPrivateKeyHex());
             response.put("durationMs", System.currentTimeMillis() - start);
             response.put("poolStats", hsmService.getPoolStats());
 
