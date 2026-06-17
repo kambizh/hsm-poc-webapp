@@ -109,8 +109,14 @@ public class StressTestController {
                 privateKeyHex, publicKeyHex, signOnly, concurrency, totalOps);
         if (invalid.isPresent()) return invalid.get();
 
-        byte[] privateKeyBlob = CommandUtils.hexToBytes(privateKeyHex);
-        byte[] publicKeyDer   = signOnly ? null : CommandUtils.hexToBytes(publicKeyHex);
+        byte[] privateKeyBlob;
+        byte[] publicKeyDer;
+        try {
+            privateKeyBlob = CommandUtils.hexToBytes(privateKeyHex);
+            publicKeyDer   = signOnly ? null : CommandUtils.hexToBytes(publicKeyHex);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "error", e.getMessage()));
+        }
         byte[] messageBytes   = message.getBytes(StandardCharsets.UTF_8);
 
         String poolBefore = hsmService.getPoolStats();

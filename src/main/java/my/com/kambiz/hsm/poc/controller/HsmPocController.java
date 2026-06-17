@@ -116,7 +116,11 @@ public class HsmPocController {
     /**
      * Sign a message via HSM.
      * POST /api/sign
-     * Body: { "message": "Hello World", "hashId": "06", "padMode": "01" }
+     * Body: { "messageHex": "48656C6C6F", "hashId": "06", "padMode": "01" }
+     *   or: { "message": "Hello World", "hashId": "06", "padMode": "01" }
+     *
+     * Prefer 'messageHex' for byte-exact signing; 'message' is UTF-8 encoded as a
+     * convenience fallback.
      */
     @PostMapping("/api/sign")
     @ResponseBody
@@ -129,9 +133,10 @@ public class HsmPocController {
             String hashId = (String) request.getOrDefault("hashId", "06");
             String padMode = (String) request.getOrDefault("padMode", "01");
 
-            if (message == null || message.isEmpty()) {
+            byte[] messageBytes = resolveMessageBytes(request);
+            if (messageBytes == null) {
                 response.put("success", false);
-                response.put("error", "Message is required");
+                response.put("error", "Either 'messageHex' (byte-exact) or 'message' (UTF-8 text) is required");
                 return ResponseEntity.badRequest().body(response);
             }
 
@@ -143,15 +148,14 @@ public class HsmPocController {
 
             LmkMode mode = hsmService.getLmkMode();
             log.info("API: Sign message ({} bytes), hash={}, pad={}, LMK mode: {}",
-                    message.length(), hashId, padMode, mode);
+                    messageBytes.length, hashId, padMode, mode);
 
-            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
             SigningResult result = hsmService.signMessage(
                     messageBytes,
                     lastKeyPair.getPrivateKeyLmkEncrypted(),
                     hashId, padMode);
             this.lastSignature = result;
-            this.lastSignedMessage = message;
+            this.lastSignedMessage = (message != null ? message : "(binary — messageHex)");
 
             response.put("success", true);
             response.put("timestamp", Instant.now().toString());
@@ -182,6 +186,12 @@ public class HsmPocController {
             flow.add("NOTE: Private key was decrypted ONLY inside HSM tamper-resistant boundary");
             response.put("hsmFlow", flow);
 
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid input during signing: {}", e.getMessage());
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.badRequest().body(response);
         } catch (PayShieldException e) {
             log.error("HSM error during signing", e);
             response.put("success", false);
@@ -211,25 +221,24 @@ public class HsmPocController {
         long start = System.currentTimeMillis();
 
         try {
-            String message = (String) request.get("message");
             String signatureHex = (String) request.get("signatureHex");
             String publicKeyHex = (String) request.get("publicKeyHex");
             String hashId = (String) request.getOrDefault("hashId", "06");
             String padMode = (String) request.getOrDefault("padMode", "01");
 
-            if (message == null || signatureHex == null || publicKeyHex == null) {
+            byte[] messageBytes = resolveMessageBytes(request);
+            if (messageBytes == null || signatureHex == null || publicKeyHex == null) {
                 response.put("success", false);
-                response.put("error", "message, signatureHex, and publicKeyHex are all required");
+                response.put("error", "message (or messageHex), signatureHex, and publicKeyHex are all required");
                 return ResponseEntity.badRequest().body(response);
             }
 
             LmkMode mode = hsmService.getLmkMode();
             log.info("API: Verify signature, message={} bytes, pubKey={} hex chars, LMK mode: {}",
-                    message.length(), publicKeyHex.length(), mode);
+                    messageBytes.length, publicKeyHex.length(), mode);
 
-            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
-            byte[] signature = CommandUtils.hexToBytes(signatureHex);
-            byte[] publicKeyDer = CommandUtils.hexToBytes(publicKeyHex);
+            byte[] signature = decodeHexField(signatureHex, "signatureHex");
+            byte[] publicKeyDer = decodeHexField(publicKeyHex, "publicKeyHex");
 
             VerificationResult result = hsmService.verifySignature(
                     signature, messageBytes, publicKeyDer, hashId, padMode);
@@ -278,6 +287,12 @@ public class HsmPocController {
                     " (" + result.getErrorDescription() + ")");
             response.put("hsmFlow", flow);
 
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid input during verification: {}", e.getMessage());
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.badRequest().body(response);
         } catch (PayShieldException e) {
             log.error("HSM error during verification", e);
             response.put("success", false);
@@ -287,6 +302,99 @@ public class HsmPocController {
             return ResponseEntity.status(500).body(response);
         } catch (Exception e) {
             log.error("Unexpected error during verification", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.status(500).body(response);
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Verify a signature in software (no HSM call).
+     *
+     * Verification only needs the signer's public key — public material — so this runs
+     * entirely on the JVM. No HSM connection, no LMK, immune to LMK-mismatch errors.
+     * Ideal for high-volume inbound checks (e.g. PayNet-signed messages).
+     *
+     * POST /api/verify-software
+     * Body: { "message": "...", "signatureHex": "...", "publicKeyHex": "...",
+     *         "hashId": "06", "padMode": "01" }
+     */
+    @PostMapping("/api/verify-software")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> verifySignatureOffHsm(@RequestBody Map<String, Object> request) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        long start = System.currentTimeMillis();
+
+        try {
+            String signatureHex = (String) request.get("signatureHex");
+            String publicKeyHex = (String) request.get("publicKeyHex");
+            String hashId = (String) request.getOrDefault("hashId", "06");
+            String padMode = (String) request.getOrDefault("padMode", "01");
+
+            byte[] messageBytes = resolveMessageBytes(request);
+            if (messageBytes == null || signatureHex == null || publicKeyHex == null) {
+                response.put("success", false);
+                response.put("error", "message (or messageHex), signatureHex, and publicKeyHex are all required");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            log.info("API: Verify signature in SOFTWARE (no HSM), message={} bytes, pubKey={} hex chars",
+                    messageBytes.length, publicKeyHex.length());
+
+            byte[] signature = decodeHexField(signatureHex, "signatureHex");
+            byte[] publicKeyDer = decodeHexField(publicKeyHex, "publicKeyHex");
+
+            VerificationResult result = hsmService.verifySignatureOffHsm(
+                    signature, messageBytes, publicKeyDer, hashId, padMode);
+
+            response.put("success", true);
+            response.put("timestamp", Instant.now().toString());
+            response.put("verificationMode", "software");
+            response.put("valid", result.isValid());
+            response.put("errorCode", result.getErrorCode());
+            response.put("errorDescription", result.getErrorDescription());
+            response.put("hashAlgorithm", CommandUtils.decodeHashAlgorithm(hashId));
+            response.put("padMode", CommandUtils.decodePadMode(padMode));
+            response.put("durationMs", System.currentTimeMillis() - start);
+
+            if (result.isValid()) {
+                response.put("verdict", "SIGNATURE VALID");
+                response.put("explanation", "The JVM confirmed the signature matches the message " +
+                        "using the provided public key. No HSM was involved.");
+            } else {
+                response.put("verdict", "SIGNATURE INVALID");
+                response.put("explanation", "The signature does not match the message under the " +
+                        "provided public key (error code 02 = signature mismatch).");
+            }
+
+            response.put("flow", List.of(
+                    "1. Parsed public key DER (X.509 SubjectPublicKeyInfo) via JDK KeyFactory",
+                    "2. Selected algorithm: " + CommandUtils.decodeHashAlgorithm(hashId) +
+                            " + " + CommandUtils.decodePadMode(padMode),
+                    "3. Recomputed hash over the message and ran RSA verification on the JVM",
+                    "4. Result: " + (result.isValid() ? "VALID" : "INVALID") +
+                            " (error code " + result.getErrorCode() + ")",
+                    "NOTE: No HSM connection, no LMK, no private key — public key only"
+            ));
+
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid input during software verification: {}", e.getMessage());
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.badRequest().body(response);
+        } catch (PayShieldException e) {
+            log.error("Error during software verification", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("errorCode", e.getErrorCode());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.status(500).body(response);
+        } catch (Exception e) {
+            log.error("Unexpected error during software verification", e);
             response.put("success", false);
             response.put("error", e.getMessage());
             response.put("durationMs", System.currentTimeMillis() - start);
@@ -488,5 +596,40 @@ public class HsmPocController {
     private String truncateHex(String hex, int maxChars) {
         if (hex.length() <= maxChars) return hex;
         return hex.substring(0, maxChars) + "... (" + hex.length() + " total chars)";
+    }
+
+    /**
+     * Resolve the canonical message bytes to sign or verify.
+     *
+     * Prefers byte-exact {@code messageHex} so that verification runs over the exact
+     * bytes that were signed (no JSON/Unicode re-encoding drift). Falls back to UTF-8
+     * encoding of the plain {@code message} string for convenience / the demo UI.
+     *
+     * @return the message bytes, or {@code null} if neither field was supplied
+     * @throws IllegalArgumentException if {@code messageHex} is present but malformed
+     */
+    private static byte[] resolveMessageBytes(Map<String, Object> request) {
+        String messageHex = (String) request.get("messageHex");
+        if (messageHex != null && !messageHex.isEmpty()) {
+            return decodeHexField(messageHex, "messageHex");
+        }
+        String message = (String) request.get("message");
+        if (message != null && !message.isEmpty()) {
+            return message.getBytes(StandardCharsets.UTF_8);
+        }
+        return null;
+    }
+
+    /**
+     * Decode a required hex field, re-tagging any validation error with the field name
+     * so the caller gets a clear 400 (e.g. "signatureHex: hex input must have an even
+     * number of digits").
+     */
+    private static byte[] decodeHexField(String value, String fieldName) {
+        try {
+            return CommandUtils.hexToBytes(value);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(fieldName + ": " + e.getMessage());
+        }
     }
 }
