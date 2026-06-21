@@ -116,7 +116,11 @@ public class HsmPocController {
     /**
      * Sign a message via HSM.
      * POST /api/sign
-     * Body: { "message": "Hello World", "hashId": "06", "padMode": "01" }
+     * Body: { "messageHex": "48656C6C6F", "hashId": "06", "padMode": "01" }
+     *   or: { "message": "Hello World", "hashId": "06", "padMode": "01" }
+     *
+     * Prefer 'messageHex' for byte-exact signing; 'message' is UTF-8 encoded as a
+     * convenience fallback.
      */
     @PostMapping("/api/sign")
     @ResponseBody
@@ -129,34 +133,47 @@ public class HsmPocController {
             String hashId = (String) request.getOrDefault("hashId", "06");
             String padMode = (String) request.getOrDefault("padMode", "01");
 
-            if (message == null || message.isEmpty()) {
+            byte[] messageBytes = resolveMessageBytes(request);
+            if (messageBytes == null) {
                 response.put("success", false);
-                response.put("error", "Message is required");
+                response.put("error", "Either 'messageHex' (byte-exact) or 'message' (UTF-8 text) is required");
                 return ResponseEntity.badRequest().body(response);
             }
 
-            if (lastKeyPair == null) {
+            // Accept an explicit LMK-encrypted private key blob from the UI (multi-slot support).
+            // When present it takes priority over lastKeyPair so each of the 3 UI key pair slots
+            // can sign independently without overwriting each other in server memory.
+            String privateKeyHexOverride = (String) request.get("privateKeyHex");
+            byte[] privateKeyBlob;
+            boolean isKeyBlock;
+            if (privateKeyHexOverride != null && !privateKeyHexOverride.isEmpty()) {
+                privateKeyBlob = decodeHexField(privateKeyHexOverride, "privateKeyHex");
+                // Key Block blobs start with 'S' (0x53); derive the flag from the blob itself
+                isKeyBlock = privateKeyBlob.length > 0 && privateKeyBlob[0] == 'S';
+            } else if (lastKeyPair == null) {
                 response.put("success", false);
                 response.put("error", "No key pair generated yet. Please generate a key pair first.");
                 return ResponseEntity.badRequest().body(response);
+            } else {
+                privateKeyBlob = lastKeyPair.getPrivateKeyLmkEncrypted();
+                isKeyBlock = lastKeyPair.isKeyBlock();
             }
 
             LmkMode mode = hsmService.getLmkMode();
             log.info("API: Sign message ({} bytes), hash={}, pad={}, LMK mode: {}",
-                    message.length(), hashId, padMode, mode);
+                    messageBytes.length, hashId, padMode, mode);
 
-            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
             SigningResult result = hsmService.signMessage(
                     messageBytes,
-                    lastKeyPair.getPrivateKeyLmkEncrypted(),
+                    privateKeyBlob,
                     hashId, padMode);
             this.lastSignature = result;
-            this.lastSignedMessage = message;
+            this.lastSignedMessage = (message != null ? message : "(binary — messageHex)");
 
             response.put("success", true);
             response.put("timestamp", Instant.now().toString());
             response.put("lmkMode", mode.getValue());
-            response.put("isKeyBlock", lastKeyPair.isKeyBlock());
+            response.put("isKeyBlock", isKeyBlock);
             response.put("message", message);
             response.put("messageHex", CommandUtils.bytesToHex(messageBytes));
             response.put("messageLength", messageBytes.length);
@@ -172,7 +189,7 @@ public class HsmPocController {
             flow.add("   - Signature Algorithm: RSA (ID: 01)");
             flow.add("   - Pad Mode: " + result.getPadMode() + " (ID: " + padMode + ")");
             flow.add("   - Message: " + messageBytes.length + " bytes");
-            if (lastKeyPair.isKeyBlock()) {
+            if (isKeyBlock) {
                 flow.add("   - Private Key: S-prefixed key block blob (flag=99, len=FFFF)");
             } else {
                 flow.add("   - Private Key: LMK-encrypted key blob (flag=99)");
@@ -182,6 +199,12 @@ public class HsmPocController {
             flow.add("NOTE: Private key was decrypted ONLY inside HSM tamper-resistant boundary");
             response.put("hsmFlow", flow);
 
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid input during signing: {}", e.getMessage());
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.badRequest().body(response);
         } catch (PayShieldException e) {
             log.error("HSM error during signing", e);
             response.put("success", false);
@@ -203,6 +226,20 @@ public class HsmPocController {
     /**
      * Verify a signature via HSM.
      * POST /api/verify
+     *
+     * Two modes:
+     *
+     * Mode A — Full EO + EY (supply raw DER public key):
+     *   Body: { "message": "...", "signatureHex": "...", "publicKeyHex": "<DER hex>",
+     *           "hashId": "06", "padMode": "01" }
+     *   Response includes "eoPublicKeyHex" (Key Block) or "eoMacHex"+"eoPublicKeyDerHex"
+     *   (Variant) so the caller can save the EO-formatted key for future EY-only calls.
+     *
+     * Mode B — EY only (supply pre-formatted EO key, skips EO round-trip):
+     *   Key Block LMK: { ..., "eoPublicKeyHex": "<S-prefixed blob hex>" }
+     *   Variant LMK:   { ..., "eoCombinedHex": "<MAC(8 chars) + DER hex>" }
+     *                  or separately: { ..., "eoMacHex": "...", "eoPublicKeyDerHex": "..." }
+     *   The combined format is preferred: first 8 hex chars = 4-byte MAC, rest = DER.
      */
     @PostMapping("/api/verify")
     @ResponseBody
@@ -211,37 +248,97 @@ public class HsmPocController {
         long start = System.currentTimeMillis();
 
         try {
-            String message = (String) request.get("message");
-            String signatureHex = (String) request.get("signatureHex");
-            String publicKeyHex = (String) request.get("publicKeyHex");
-            String hashId = (String) request.getOrDefault("hashId", "06");
+            String signatureHex   = (String) request.get("signatureHex");
+            String publicKeyHex   = (String) request.get("publicKeyHex");
+            String hashId  = (String) request.getOrDefault("hashId",  "06");
             String padMode = (String) request.getOrDefault("padMode", "01");
 
-            if (message == null || signatureHex == null || publicKeyHex == null) {
+            // Pre-formatted EO key fields (Mode B)
+            String eoPublicKeyHex    = (String) request.get("eoPublicKeyHex");    // Key Block blob
+            String eoCombinedHex     = (String) request.get("eoCombinedHex");     // Variant: MAC(8)+DER
+            String eoMacHex          = (String) request.get("eoMacHex");           // Variant MAC (legacy separate)
+            String eoPublicKeyDerHex = (String) request.get("eoPublicKeyDerHex"); // Variant DER (legacy separate)
+
+            // Expand eoCombinedHex into MAC + DER if provided (first 8 hex chars = 4-byte MAC)
+            if (eoCombinedHex != null && !eoCombinedHex.isEmpty() && eoCombinedHex.length() > 8) {
+                eoMacHex          = eoCombinedHex.substring(0, 8);
+                eoPublicKeyDerHex = eoCombinedHex.substring(8);
+            }
+
+            boolean hasEoKey = (eoPublicKeyHex != null && !eoPublicKeyHex.isEmpty())
+                    || (eoMacHex != null && !eoMacHex.isEmpty()
+                        && eoPublicKeyDerHex != null && !eoPublicKeyDerHex.isEmpty());
+
+            byte[] messageBytes = resolveMessageBytes(request);
+            if (messageBytes == null || signatureHex == null
+                    || (!hasEoKey && publicKeyHex == null)) {
                 response.put("success", false);
-                response.put("error", "message, signatureHex, and publicKeyHex are all required");
+                response.put("error",
+                        "message (or messageHex) and signatureHex are always required. " +
+                        "Also supply either 'publicKeyHex' (raw DER, runs EO+EY) " +
+                        "or 'eoPublicKeyHex'/'eoMacHex'+'eoPublicKeyDerHex' (pre-formatted, EY only).");
                 return ResponseEntity.badRequest().body(response);
             }
 
             LmkMode mode = hsmService.getLmkMode();
-            log.info("API: Verify signature, message={} bytes, pubKey={} hex chars, LMK mode: {}",
-                    message.length(), publicKeyHex.length(), mode);
+            byte[] signature = decodeHexField(signatureHex, "signatureHex");
 
-            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
-            byte[] signature = CommandUtils.hexToBytes(signatureHex);
-            byte[] publicKeyDer = CommandUtils.hexToBytes(publicKeyHex);
+            PublicKeyImportResult importResult;
+            boolean skippedEo;
+
+            if (hasEoKey) {
+                // ── Mode B: EY only, reconstruct PublicKeyImportResult from saved EO data ──
+                if (eoPublicKeyHex != null && !eoPublicKeyHex.isEmpty()) {
+                    // Key Block path
+                    byte[] keyBlock = decodeHexField(eoPublicKeyHex, "eoPublicKeyHex");
+                    importResult = PublicKeyImportResult.keyBlockResult(keyBlock);
+                    log.info("API: Verify (EY only / Key Block), msg={} bytes, LMK mode: {}",
+                            messageBytes.length, mode);
+                } else {
+                    // Variant path
+                    byte[] mac = decodeHexField(eoMacHex, "eoMacHex");
+                    byte[] der = decodeHexField(eoPublicKeyDerHex, "eoPublicKeyDerHex");
+                    importResult = new PublicKeyImportResult(mac, der);
+                    log.info("API: Verify (EY only / Variant), msg={} bytes, LMK mode: {}",
+                            messageBytes.length, mode);
+                }
+                skippedEo = true;
+            } else {
+                // ── Mode A: Full EO + EY, import raw DER public key ──
+                byte[] publicKeyDer = decodeHexField(publicKeyHex, "publicKeyHex");
+                log.info("API: Verify (EO+EY), msg={} bytes, pubKey={} hex chars, LMK mode: {}",
+                        messageBytes.length, publicKeyHex.length(), mode);
+                importResult = hsmService.importPublicKeyForVerification(publicKeyDer);
+                skippedEo = false;
+            }
 
             VerificationResult result = hsmService.verifySignature(
-                    signature, messageBytes, publicKeyDer, hashId, padMode);
+                    signature, messageBytes, importResult, hashId, padMode);
 
             response.put("success", true);
             response.put("timestamp", Instant.now().toString());
             response.put("lmkMode", mode.getValue());
+            response.put("skippedEo", skippedEo);
             response.put("valid", result.isValid());
             response.put("errorCode", result.getErrorCode());
             response.put("errorDescription", result.getErrorDescription());
             response.put("rawResponseHex", result.getRawResponseHex());
             response.put("durationMs", System.currentTimeMillis() - start);
+
+            // ── Expose EO-formatted key so the caller can save it for future EY-only calls ──
+            if (!skippedEo) {
+                if (mode == LmkMode.KEYBLOCK) {
+                    response.put("eoPublicKeyHex", importResult.getPublicKeyBlockHex());
+                } else {
+                    // Variant: expose as one combined string (MAC 8 hex chars + DER hex)
+                    // so the caller has a single value to copy/save, matching Key Block UX.
+                    String macHex = importResult.getMacHex();
+                    String derHex = CommandUtils.bytesToHex(importResult.getPublicKeyDer());
+                    response.put("eoCombinedHex",     macHex + derHex);
+                    response.put("eoMacHex",           macHex);          // also exposed separately
+                    response.put("eoPublicKeyDerHex",  derHex);           // for reference
+                }
+            }
 
             if (result.isValid()) {
                 response.put("verdict", "SIGNATURE VALID");
@@ -265,12 +362,18 @@ public class HsmPocController {
             }
 
             List<String> flow = new ArrayList<>();
-            if (mode == LmkMode.KEYBLOCK) {
+            if (skippedEo) {
+                flow.add("EO step SKIPPED — using pre-formatted public key from saved EO result");
+                flow.add("1. EY command sent directly with " +
+                        (mode == LmkMode.KEYBLOCK ? "S-prefixed key block" : "MAC + DER"));
+            } else if (mode == LmkMode.KEYBLOCK) {
                 flow.add("1. EO command → public key imported with '#' + Key Block attributes");
                 flow.add("   HSM returned: S-prefixed public key block (MAC embedded in key block)");
-                flow.add("2. EY command sent with S-prefixed public key block (no separate MAC)");
+                flow.add("   → Save 'eoPublicKeyHex' from this response to reuse EY-only next time");
+                flow.add("2. EY command sent with S-prefixed public key block");
             } else {
-                flow.add("1. EO command → public key imported, HSM generated MAC using LMK pair 36-37");
+                flow.add("1. EO command → public key imported, HSM computed MAC under LMK pair 36-37");
+                flow.add("   → Save 'eoCombinedHex' (MAC 8 chars + DER) to reuse EY-only next time");
                 flow.add("2. EY command sent with MAC + DER public key");
             }
             flow.add("3. HSM internally: verified key integrity → computed hash → RSA verification");
@@ -278,6 +381,12 @@ public class HsmPocController {
                     " (" + result.getErrorDescription() + ")");
             response.put("hsmFlow", flow);
 
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid input during verification: {}", e.getMessage());
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.badRequest().body(response);
         } catch (PayShieldException e) {
             log.error("HSM error during verification", e);
             response.put("success", false);
@@ -287,6 +396,186 @@ public class HsmPocController {
             return ResponseEntity.status(500).body(response);
         } catch (Exception e) {
             log.error("Unexpected error during verification", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.status(500).body(response);
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Import a public key via EO command (one-time operation).
+     *
+     * Run this ONCE for a given public key and save the returned EO-formatted key
+     * to your local DB / text file. Then use that saved key in /api/verify with
+     * 'eoPublicKeyHex' (Key Block) or 'eoMacHex'+'eoPublicKeyDerHex' (Variant)
+     * to skip the EO round-trip on every subsequent verification.
+     *
+     * POST /api/import-pubkey
+     * Body: { "publicKeyHex": "<DER hex>" }
+     */
+    @PostMapping("/api/import-pubkey")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> importPublicKey(@RequestBody Map<String, Object> request) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        long start = System.currentTimeMillis();
+
+        try {
+            String publicKeyHex = (String) request.get("publicKeyHex");
+            if (publicKeyHex == null || publicKeyHex.isEmpty()) {
+                response.put("success", false);
+                response.put("error", "publicKeyHex (raw DER hex) is required");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            LmkMode mode = hsmService.getLmkMode();
+            log.info("API: Import public key via EO, pubKey={} hex chars, LMK mode: {}",
+                    publicKeyHex.length(), mode);
+
+            byte[] publicKeyDer = decodeHexField(publicKeyHex, "publicKeyHex");
+            PublicKeyImportResult result = hsmService.importPublicKeyForVerification(publicKeyDer);
+
+            response.put("success", true);
+            response.put("timestamp", Instant.now().toString());
+            response.put("lmkMode", mode.getValue());
+            response.put("isKeyBlock", result.isKeyBlock());
+            response.put("durationMs", System.currentTimeMillis() - start);
+
+            if (mode == LmkMode.KEYBLOCK) {
+                response.put("eoPublicKeyHex", result.getPublicKeyBlockHex());
+                response.put("note",
+                        "Save 'eoPublicKeyHex'. Use it in /api/verify with field 'eoPublicKeyHex' " +
+                        "to skip EO and go straight to EY on every subsequent verification.");
+            } else {
+                String macHex = result.getMacHex();
+                String derHex = CommandUtils.bytesToHex(result.getPublicKeyDer());
+                response.put("eoCombinedHex",    macHex + derHex);   // single value to save
+                response.put("eoMacHex",          macHex);            // also separately for reference
+                response.put("eoPublicKeyDerHex", derHex);
+                response.put("note",
+                        "Save 'eoCombinedHex' (first 8 chars = MAC, rest = DER public key). " +
+                        "Use it in /api/verify with field 'eoCombinedHex' to skip EO.");
+            }
+
+            response.put("hsmFlow", List.of(
+                    "1. EO command sent to HSM with DER public key (" + publicKeyDer.length + " bytes)",
+                    mode == LmkMode.KEYBLOCK
+                            ? "2. HSM returned: S-prefixed key block (" + result.getPublicKeyBlock().length + " bytes) — MAC embedded"
+                            : "2. HSM returned: MAC (4 bytes, LMK pair 36-37) + DER public key (" + result.getPublicKeyDer().length + " bytes)",
+                    "3. Save the EO result — it stays valid as long as the HSM LMK is unchanged",
+                    "4. Use the saved EO key in /api/verify to call EY only (no EO round-trip)"
+            ));
+
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid input during public key import: {}", e.getMessage());
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.badRequest().body(response);
+        } catch (PayShieldException e) {
+            log.error("HSM error during public key import", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("errorCode", e.getErrorCode());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.status(500).body(response);
+        } catch (Exception e) {
+            log.error("Unexpected error during public key import", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.status(500).body(response);
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Verify a signature in software (no HSM call).
+     *
+     * Verification only needs the signer's public key — public material — so this runs
+     * entirely on the JVM. No HSM connection, no LMK, immune to LMK-mismatch errors.
+     * Ideal for high-volume inbound checks (e.g. PayNet-signed messages).
+     *
+     * POST /api/verify-software
+     * Body: { "message": "...", "signatureHex": "...", "publicKeyHex": "...",
+     *         "hashId": "06", "padMode": "01" }
+     */
+    @PostMapping("/api/verify-software")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> verifySignatureOffHsm(@RequestBody Map<String, Object> request) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        long start = System.currentTimeMillis();
+
+        try {
+            String signatureHex = (String) request.get("signatureHex");
+            String publicKeyHex = (String) request.get("publicKeyHex");
+            String hashId = (String) request.getOrDefault("hashId", "06");
+            String padMode = (String) request.getOrDefault("padMode", "01");
+
+            byte[] messageBytes = resolveMessageBytes(request);
+            if (messageBytes == null || signatureHex == null || publicKeyHex == null) {
+                response.put("success", false);
+                response.put("error", "message (or messageHex), signatureHex, and publicKeyHex are all required");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            log.info("API: Verify signature in SOFTWARE (no HSM), message={} bytes, pubKey={} hex chars",
+                    messageBytes.length, publicKeyHex.length());
+
+            byte[] signature = decodeHexField(signatureHex, "signatureHex");
+            byte[] publicKeyDer = decodeHexField(publicKeyHex, "publicKeyHex");
+
+            VerificationResult result = hsmService.verifySignatureOffHsm(
+                    signature, messageBytes, publicKeyDer, hashId, padMode);
+
+            response.put("success", true);
+            response.put("timestamp", Instant.now().toString());
+            response.put("verificationMode", "software");
+            response.put("valid", result.isValid());
+            response.put("errorCode", result.getErrorCode());
+            response.put("errorDescription", result.getErrorDescription());
+            response.put("hashAlgorithm", CommandUtils.decodeHashAlgorithm(hashId));
+            response.put("padMode", CommandUtils.decodePadMode(padMode));
+            response.put("durationMs", System.currentTimeMillis() - start);
+
+            if (result.isValid()) {
+                response.put("verdict", "SIGNATURE VALID");
+                response.put("explanation", "The JVM confirmed the signature matches the message " +
+                        "using the provided public key. No HSM was involved.");
+            } else {
+                response.put("verdict", "SIGNATURE INVALID");
+                response.put("explanation", "The signature does not match the message under the " +
+                        "provided public key (error code 02 = signature mismatch).");
+            }
+
+            response.put("flow", List.of(
+                    "1. Parsed public key DER (X.509 SubjectPublicKeyInfo) via JDK KeyFactory",
+                    "2. Selected algorithm: " + CommandUtils.decodeHashAlgorithm(hashId) +
+                            " + " + CommandUtils.decodePadMode(padMode),
+                    "3. Recomputed hash over the message and ran RSA verification on the JVM",
+                    "4. Result: " + (result.isValid() ? "VALID" : "INVALID") +
+                            " (error code " + result.getErrorCode() + ")",
+                    "NOTE: No HSM connection, no LMK, no private key — public key only"
+            ));
+
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid input during software verification: {}", e.getMessage());
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.badRequest().body(response);
+        } catch (PayShieldException e) {
+            log.error("Error during software verification", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("errorCode", e.getErrorCode());
+            response.put("durationMs", System.currentTimeMillis() - start);
+            return ResponseEntity.status(500).body(response);
+        } catch (Exception e) {
+            log.error("Unexpected error during software verification", e);
             response.put("success", false);
             response.put("error", e.getMessage());
             response.put("durationMs", System.currentTimeMillis() - start);
@@ -488,5 +777,40 @@ public class HsmPocController {
     private String truncateHex(String hex, int maxChars) {
         if (hex.length() <= maxChars) return hex;
         return hex.substring(0, maxChars) + "... (" + hex.length() + " total chars)";
+    }
+
+    /**
+     * Resolve the canonical message bytes to sign or verify.
+     *
+     * Prefers byte-exact {@code messageHex} so that verification runs over the exact
+     * bytes that were signed (no JSON/Unicode re-encoding drift). Falls back to UTF-8
+     * encoding of the plain {@code message} string for convenience / the demo UI.
+     *
+     * @return the message bytes, or {@code null} if neither field was supplied
+     * @throws IllegalArgumentException if {@code messageHex} is present but malformed
+     */
+    private static byte[] resolveMessageBytes(Map<String, Object> request) {
+        String messageHex = (String) request.get("messageHex");
+        if (messageHex != null && !messageHex.isEmpty()) {
+            return decodeHexField(messageHex, "messageHex");
+        }
+        String message = (String) request.get("message");
+        if (message != null && !message.isEmpty()) {
+            return message.getBytes(StandardCharsets.UTF_8);
+        }
+        return null;
+    }
+
+    /**
+     * Decode a required hex field, re-tagging any validation error with the field name
+     * so the caller gets a clear 400 (e.g. "signatureHex: hex input must have an even
+     * number of digits").
+     */
+    private static byte[] decodeHexField(String value, String fieldName) {
+        try {
+            return CommandUtils.hexToBytes(value);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(fieldName + ": " + e.getMessage());
+        }
     }
 }

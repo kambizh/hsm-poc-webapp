@@ -119,6 +119,27 @@
         .copy-btn { background: none; border: 1px solid var(--border); color: var(--text-dim);
             padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
         .copy-btn:hover { color: var(--text); border-color: var(--text-dim); }
+
+        /* Multi key-pair grid */
+        .kp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
+        @media (max-width: 900px) { .kp-grid { grid-template-columns: 1fr; } }
+        .kp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+        .kp-card.generated { border-color: rgba(52,211,153,0.4); }
+        .kp-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+        .kp-badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px;
+            font-weight: 700; background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
+        .kp-badge.ready { background: rgba(52,211,153,0.12); color: var(--green); border-color: rgba(52,211,153,0.3); }
+        .kp-summary { margin-top: 12px; padding: 10px 12px; background: var(--bg); border-radius: 8px;
+            border: 1px solid var(--border); font-size: 11px; font-family: var(--mono); color: var(--text-dim); line-height: 1.8; }
+        .kp-summary.ready { border-color: rgba(52,211,153,0.2); color: var(--green); }
+
+        /* Slot selector (sign tab) */
+        .slot-picker { display: flex; gap: 8px; margin-bottom: 16px; }
+        .slot-btn { flex: 1; padding: 10px; border-radius: 8px; font-size: 13px; font-weight: 600;
+            border: 1px solid var(--border); background: var(--surface2); color: var(--text-dim); cursor: pointer; transition: all 0.2s; }
+        .slot-btn:hover { color: var(--text); border-color: var(--accent-dim); }
+        .slot-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .slot-btn:disabled { opacity: 0.35; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -135,7 +156,9 @@
     <div class="info-bar" id="infoBar">
         <span><span class="status-dot yellow" id="connDot"></span> HSM: <span id="connStatus">Not connected</span></span>
         <span>Pool: <span id="poolStats">—</span></span>
-        <span>Key Pair: <span id="keyStatus">None</span></span>
+        <span>KP-1: <span id="kpStatus-1" style="color:var(--text-dim)">—</span></span>
+        <span>KP-2: <span id="kpStatus-2" style="color:var(--text-dim)">—</span></span>
+        <span>KP-3: <span id="kpStatus-3" style="color:var(--text-dim)">—</span></span>
     </div>
 
     <div class="tabs">
@@ -153,28 +176,77 @@
         </button>
     </div>
 
-    <!-- ===== TAB 1: KEY GENERATION ===== -->
+    <!-- ===== TAB 1: KEY GENERATION (3 independent slots) ===== -->
     <div class="panel active" id="panel-keygen">
-        <div class="card">
-            <h2><span class="icon"></span> Generates an RSA key pair inside the HSM.</h2>
-            <p style="color: var(--text-dim); font-size: 13px; margin-bottom: 16px;">
-                The private key never leaves the HSM in plaintext. 
-                it is returned as an LMK-encrypted key blob for use in signing operations.
+        <div class="card" style="margin-bottom: 16px;">
+            <h2><span class="icon"></span> Generate RSA Key Pairs inside the HSM</h2>
+            <p style="color: var(--text-dim); font-size: 13px;">
+                Generate up to 3 independent RSA key pairs. Each private key stays LMK-encrypted
+                inside the HSM boundary. Use different slots to test that signing and verification
+                are truly isolated — a signature from KP-1 must fail verification with KP-2's public key.
             </p>
-            <div class="row">
-                <div>
-                    <label>RSA Modulus Length (bits)</label>
-                    <select id="modulusBits">
-                        <option value="1024">1024 (fast, testing only)</option>
-                        <option value="2048" selected>2048 (PayNet standard)</option>
-                        <option value="4096">4096 (high security)</option>
-                    </select>
+        </div>
+
+        <div class="kp-grid">
+            <!-- KP-1 -->
+            <div class="kp-card" id="kpCard-1">
+                <div class="kp-header">
+                    <span style="font-size: 18px;">🔑</span>
+                    <span style="font-weight: 700; font-size: 15px;">Key Pair 1</span>
+                    <span class="kp-badge" id="kpBadge-1">Not generated</span>
                 </div>
+                <label>RSA Modulus</label>
+                <select id="modulusBits-1" style="margin-bottom: 12px;">
+                    <option value="1024">1024 (fast, testing only)</option>
+                    <option value="2048" selected>2048 (PayNet standard)</option>
+                    <option value="4096">4096 (high security)</option>
+                </select>
+                <button class="btn btn-primary" id="btnGenerate-1" onclick="generateKeyPair(1)" style="width:100%;">
+                    Generate KP-1 via HSM
+                </button>
+                <div id="kpSummary-1" class="kp-summary" style="display:none;"></div>
+                <div id="keygenResult-1"></div>
             </div>
-            <button class="btn btn-primary" id="btnGenerate" onclick="generateKeyPair()">
-                Generate Key Pair via HSM
-            </button>
-            <div id="keygenResult"></div>
+
+            <!-- KP-2 -->
+            <div class="kp-card" id="kpCard-2">
+                <div class="kp-header">
+                    <span style="font-size: 18px;">🔑</span>
+                    <span style="font-weight: 700; font-size: 15px;">Key Pair 2</span>
+                    <span class="kp-badge" id="kpBadge-2">Not generated</span>
+                </div>
+                <label>RSA Modulus</label>
+                <select id="modulusBits-2" style="margin-bottom: 12px;">
+                    <option value="1024">1024 (fast, testing only)</option>
+                    <option value="2048" selected>2048 (PayNet standard)</option>
+                    <option value="4096">4096 (high security)</option>
+                </select>
+                <button class="btn btn-primary" id="btnGenerate-2" onclick="generateKeyPair(2)" style="width:100%;">
+                    Generate KP-2 via HSM
+                </button>
+                <div id="kpSummary-2" class="kp-summary" style="display:none;"></div>
+                <div id="keygenResult-2"></div>
+            </div>
+
+            <!-- KP-3 -->
+            <div class="kp-card" id="kpCard-3">
+                <div class="kp-header">
+                    <span style="font-size: 18px;">🔑</span>
+                    <span style="font-weight: 700; font-size: 15px;">Key Pair 3</span>
+                    <span class="kp-badge" id="kpBadge-3">Not generated</span>
+                </div>
+                <label>RSA Modulus</label>
+                <select id="modulusBits-3" style="margin-bottom: 12px;">
+                    <option value="1024">1024 (fast, testing only)</option>
+                    <option value="2048" selected>2048 (PayNet standard)</option>
+                    <option value="4096">4096 (high security)</option>
+                </select>
+                <button class="btn btn-primary" id="btnGenerate-3" onclick="generateKeyPair(3)" style="width:100%;">
+                    Generate KP-3 via HSM
+                </button>
+                <div id="kpSummary-3" class="kp-summary" style="display:none;"></div>
+                <div id="keygenResult-3"></div>
+            </div>
         </div>
     </div>
 
@@ -183,9 +255,24 @@
         <div class="card">
             <h2><span class="icon"></span> Sign Message (EW Command)</h2>
             <p style="color: var(--text-dim); font-size: 13px; margin-bottom: 16px;">
-                Signs a message using the RSA private key stored in HSM User Storage (K000).
-                The HSM internally retrieves the key, decrypts it under LMK, computes the hash, and generates the signature.
+                Signs a message using an LMK-encrypted private key blob.
+                Paste the key from your saved archive, or use a quick-fill button if you generated one above in Step 1.
+                The HSM decrypts the blob internally — the private key never leaves its boundary.
             </p>
+
+            <div style="margin-bottom: 16px;">
+                <label>
+                    Private Key (LMK-Encrypted Hex)
+                    <span style="font-size: 11px; color: var(--text-dim); margin-left: 6px;">— paste from your archive or quick-fill below</span>
+                </label>
+                <div style="display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap;">
+                    <button class="copy-btn" onclick="fillSignKeyFromSlot(1)">🔑 Fill from KP-1</button>
+                    <button class="copy-btn" onclick="fillSignKeyFromSlot(2)">🔑 Fill from KP-2</button>
+                    <button class="copy-btn" onclick="fillSignKeyFromSlot(3)">🔑 Fill from KP-3</button>
+                </div>
+                <textarea id="signPrivateKeyHex" rows="3" placeholder="Paste LMK-encrypted private key hex here (from Step 1 result or your saved archive)..."></textarea>
+            </div>
+
             <div class="row">
                 <div>
                     <label>Hash Algorithm</label>
@@ -219,12 +306,26 @@
 
     <!-- ===== TAB 3: VERIFICATION ===== -->
     <div class="panel" id="panel-verify">
+
+        <!-- Mode toggle -->
+        <div class="card" style="margin-bottom: 16px; padding: 16px 20px;">
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <span style="font-size: 13px; font-weight: 600; color: var(--text-dim);">Verification mode:</span>
+                <div class="slot-picker" style="margin-bottom: 0; flex: 1; max-width: 500px;">
+                    <button class="slot-btn active" id="vmodeBtnFull" onclick="setVerifyMode('full')">
+                        🔗 Full EO + EY&nbsp;<span style="font-size:10px; opacity:0.7;">(raw DER key)</span>
+                    </button>
+                    <button class="slot-btn" id="vmodeBtnEo" onclick="setVerifyMode('eo-only')">
+                        ⚡ EY only&nbsp;<span style="font-size:10px; opacity:0.7;">(saved EO key)</span>
+                    </button>
+                </div>
+                <span id="vmodeDesc" style="font-size: 12px; color: var(--text-dim);">Runs EO then EY. Returns EO-formatted key to save.</span>
+            </div>
+        </div>
+
         <div class="card">
             <h2><span class="icon"></span> Verify Signature (EO + EY Commands)</h2>
-            <p style="color: var(--text-dim); font-size: 13px; margin-bottom: 16px;">
-                Verifies a signature using a public key. First imports the public key (EO) to get its MAC,
-                then verifies (EY). Test with the correct key and a wrong key to see the HSM's different responses.
-            </p>
+
             <div class="row">
                 <div>
                     <label>Hash Algorithm</label>
@@ -252,13 +353,29 @@
                 <label>Signature (Hex)</label>
                 <textarea id="verifySignatureHex" rows="3" placeholder="Paste the signature hex from Step 2..."></textarea>
             </div>
-            <div style="margin-top: 12px;">
-                <label>Public Key (DER Hex)
-                    <button class="copy-btn" onclick="fillCorrectKey()" style="margin-left: 8px;"> Use Correct Key</button>
-                    <button class="copy-btn" onclick="fillWrongKey()" style="margin-left: 4px;"> Use Wrong Key</button>
-                </label>
-                <textarea id="verifyPublicKeyHex" rows="3" placeholder="Paste the public key hex..."></textarea>
+
+            <!-- Mode A: raw DER key input -->
+            <div id="verifyInputFull" style="margin-top: 12px;">
+                <label>Public Key — Raw DER Hex <span style="color: var(--text-dim); font-size: 11px;">(HSM will run EO to import it)</span></label>
+                <div style="display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap;">
+                    <button class="copy-btn" onclick="fillKeyFromSlot(1)">🔑 Use KP-1</button>
+                    <button class="copy-btn" onclick="fillKeyFromSlot(2)">🔑 Use KP-2</button>
+                    <button class="copy-btn" onclick="fillKeyFromSlot(3)">🔑 Use KP-3</button>
+                    <button class="copy-btn" onclick="fillWrongKey()" style="margin-left: 8px;">💀 Corrupt Key</button>
+                </div>
+                <textarea id="verifyPublicKeyHex" rows="3" placeholder="Paste raw DER public key hex (from Step 1 or your archive)..."></textarea>
             </div>
+
+            <!-- Mode B: pre-formatted EO key input (single field for both Key Block and Variant) -->
+            <div id="verifyInputEoOnly" style="margin-top: 12px; display: none;">
+                <div style="background: var(--yellow-bg); border: 1px solid rgba(251,191,36,0.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; color: var(--yellow);">
+                    ⚡ EY only — paste the EO key you saved from a previous EO+EY result. The HSM skips EO entirely.<br>
+                    <span style="opacity: 0.8;">Key Block: paste the S-prefixed blob &nbsp;|&nbsp; Variant: paste the combined hex (MAC + DER in one string)</span>
+                </div>
+                <label>Saved EO Key Hex</label>
+                <textarea id="verifyEoPublicKeyHex" rows="3" placeholder="Key Block: paste S-prefixed blob (starts with '53')&#10;Variant: paste combined hex (first 8 chars = MAC, rest = DER public key)"></textarea>
+            </div>
+
             <br>
             <button class="btn btn-primary" id="btnVerifyCorrect" onclick="verifySignature()">
                  Verify Signature via HSM
@@ -345,10 +462,16 @@
 </div>
 
 <script>
-    // State
-    let state = { publicKeyHex: null, signatureHex: null, signedMessage: null };
+    // ===== State =====
+    // keyPairs[i] = null | { publicKeyHex, privateKeyHex, modulusBits, lmkScheme, isKeyBlock }
+    let state = {
+        keyPairs: [null, null, null],   // index 0 = KP-1, 1 = KP-2, 2 = KP-3
+        signatureHex: null,
+        signedMessage: null,
+        verifyMode: 'full'              // 'full' = EO+EY, 'eo-only' = EY only
+    };
 
-    // Tab switching
+    // ===== Tab switching =====
     function showTab(name) {
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -356,7 +479,7 @@
         event.currentTarget.classList.add('active');
     }
 
-    // Fetch helper
+    // ===== Fetch helper =====
     async function apiCall(url, body) {
         const resp = await fetch(url, {
             method: 'POST',
@@ -366,104 +489,157 @@
         return await resp.json();
     }
 
-    // ===== KEY GENERATION =====
-    async function generateKeyPair() {
-        const btn = document.getElementById('btnGenerate');
-        const div = document.getElementById('keygenResult');
+    // ===== KEY GENERATION (per slot) =====
+    async function generateKeyPair(slot) {
+        const idx = slot - 1;
+        const btn = document.getElementById('btnGenerate-' + slot);
+        const detailDiv = document.getElementById('keygenResult-' + slot);
+        const summaryDiv = document.getElementById('kpSummary-' + slot);
+        const card = document.getElementById('kpCard-' + slot);
+        const badge = document.getElementById('kpBadge-' + slot);
+
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner"></span> Generating...';
-        div.innerHTML = '<div class="result-box result-neutral">Sending EI command to HSM... This may take a few seconds for RSA-2048/4096.</div>';
+        detailDiv.innerHTML = '<div class="result-box result-neutral" style="margin-top:10px;">Sending EI command to HSM…</div>';
 
         try {
             const data = await apiCall('/api/generate-keypair', {
-                modulusBits: parseInt(document.getElementById('modulusBits').value)
+                modulusBits: parseInt(document.getElementById('modulusBits-' + slot).value)
             });
 
             if (data.success) {
-                state.publicKeyHex = data.publicKeyHex;
-                document.getElementById('keyStatus').textContent = 'RSA-' + data.modulusBits + ' ✓';
+                state.keyPairs[idx] = {
+                    publicKeyHex:  data.publicKeyHex,
+                    privateKeyHex: data.privateKeyHex,
+                    modulusBits:   data.modulusBits,
+                    lmkScheme:     data.lmkScheme,
+                    isKeyBlock:    data.isKeyBlock
+                };
+
+                // Update info bar
+                const statusEl = document.getElementById('kpStatus-' + slot);
+                statusEl.textContent = 'RSA-' + data.modulusBits + ' ✓';
+                statusEl.style.color = 'var(--green)';
                 document.getElementById('connDot').className = 'status-dot green';
                 document.getElementById('connStatus').textContent = 'Connected';
                 document.getElementById('poolStats').textContent = data.poolStats;
 
-                div.innerHTML = `
-                    <div class="result-box result-success"> KEY PAIR GENERATED SUCCESSFULLY
-Duration: ${data.durationMs}ms | Modulus: RSA-${data.modulusBits}
-Public Key: ${data.publicKeyLength} bytes | Private Key: ${data.privateKeyLength} bytes (LMK-encrypted)</div>
+                // Mark card as generated
+                card.classList.add('generated');
+                badge.textContent = 'RSA-' + data.modulusBits + ' ✓';
+                badge.classList.add('ready');
 
-                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);"> HSM Command Flow</h3>
+                // Summary line
+                summaryDiv.style.display = 'block';
+                summaryDiv.classList.add('ready');
+                summaryDiv.textContent =
+                    `Generated in ${data.durationMs}ms\n` +
+                    `Pub: ${data.publicKeyLength} bytes  |  Priv: ${data.privateKeyLength} bytes (LMK-enc)\n` +
+                    `Scheme: ${data.lmkScheme}  |  KeyBlock: ${data.isKeyBlock}`;
+
+                // Detailed result with keys
+                detailDiv.innerHTML = `
+                    <h3 style="margin-top: 14px; font-size: 13px; color: var(--text);">HSM Command Flow</h3>
                     <ul class="flow-list">${data.hsmFlow.map(f => '<li>' + f + '</li>').join('')}</ul>
-
-                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">Public Key (DER Hex)</h3>
+                    <h3 style="margin-top: 12px; font-size: 13px; color: var(--text);">Public Key (DER Hex)</h3>
                     <div class="hex-display">${data.publicKeyHex}</div>
-
-                    <h3 style="margin-top: 12px; font-size: 14px; color: var(--text);"> Private Key (LMK-Encrypted, truncated)</h3>
+                    <h3 style="margin-top: 10px; font-size: 13px; color: var(--text);">Private Key (LMK-Encrypted)</h3>
                     <div class="hex-display">${data.privateKeyHex}</div>
                 `;
             } else {
                 document.getElementById('connDot').className = 'status-dot red';
-                div.innerHTML = `<div class="result-box result-error"> KEY GENERATION FAILED\n\n${data.error}\n\nError Code: ${data.errorCode || 'N/A'}\nDuration: ${data.durationMs}ms</div>`;
+                detailDiv.innerHTML = `<div class="result-box result-error" style="margin-top:10px;">KEY GENERATION FAILED\n\n${data.error}\nCode: ${data.errorCode || 'N/A'} | ${data.durationMs}ms</div>`;
             }
         } catch (e) {
             document.getElementById('connDot').className = 'status-dot red';
             document.getElementById('connStatus').textContent = 'Error';
-            div.innerHTML = `<div class="result-box result-error"> CONNECTION ERROR\n\n${e.message}\n\nMake sure:\n1. payShield HSM is reachable at the configured host:port\n2. The host command port is open\n3. The header length matches HSM configuration</div>`;
+            detailDiv.innerHTML = `<div class="result-box result-error" style="margin-top:10px;">CONNECTION ERROR\n\n${e.message}\n\nCheck HSM host:port and header length config.</div>`;
         }
 
         btn.disabled = false;
-        btn.innerHTML = 'Generate Key Pair via HSM';
+        btn.innerHTML = 'Generate KP-' + slot + ' via HSM';
+    }
+
+    // ===== SIGN tab — quick-fill from a generated slot =====
+    function fillSignKeyFromSlot(slot) {
+        const kp = state.keyPairs[slot - 1];
+        if (kp && kp.privateKeyHex) {
+            document.getElementById('signPrivateKeyHex').value = kp.privateKeyHex;
+        } else {
+            alert('KP-' + slot + ' has not been generated yet in this session. Go to Step 1 first, or paste from your saved archive directly.');
+        }
     }
 
     // ===== SIGNING =====
     async function signMessage() {
-        const btn = document.getElementById('btnSign');
-        const div = document.getElementById('signResult');
-        const message = document.getElementById('signMessage').value;
+        const btn  = document.getElementById('btnSign');
+        const div  = document.getElementById('signResult');
+        const message    = document.getElementById('signMessage').value;
+        const privKeyHex = document.getElementById('signPrivateKeyHex').value.trim();
 
+        if (!privKeyHex) {
+            alert('Please paste the LMK-encrypted private key hex first (from Step 1 result or your saved archive).');
+            return;
+        }
         if (!message) { alert('Please enter a message to sign.'); return; }
 
         btn.disabled = true;
-        btn.innerHTML = '<span class="spinner"></span> Signing...';
-        div.innerHTML = '<div class="result-box result-neutral">Sending EW command to HSM...</div>';
+        btn.innerHTML = '<span class="spinner"></span> Signing…';
+        div.innerHTML = '<div class="result-box result-neutral">Sending EW command to HSM…</div>';
 
         try {
             const data = await apiCall('/api/sign', {
-                message: message,
-                hashId: document.getElementById('signHashId').value,
-                padMode: document.getElementById('signPadMode').value
+                message:       message,
+                privateKeyHex: privKeyHex,
+                hashId:        document.getElementById('signHashId').value,
+                padMode:       document.getElementById('signPadMode').value
             });
 
             if (data.success) {
-                state.signatureHex = data.signatureHex;
+                state.signatureHex  = data.signatureHex;
                 state.signedMessage = message;
 
-                // Auto-fill verification tab
-                document.getElementById('verifyMessage').value = message;
-                document.getElementById('verifySignatureHex').value = data.signatureHex;
+                // Auto-fill verify tab
+                document.getElementById('verifyMessage').value       = message;
+                document.getElementById('verifySignatureHex').value  = data.signatureHex;
 
                 div.innerHTML = `
-                    <div class="result-box result-success"> MESSAGE SIGNED SUCCESSFULLY
+                    <div class="result-box result-success">✅ SIGNED SUCCESSFULLY
 Duration: ${data.durationMs}ms | Hash: ${data.hashAlgorithm} | Pad: ${data.padMode}
 Message: ${data.messageLength} bytes → Signature: ${data.signatureLength} bytes</div>
 
-                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);"> HSM Command Flow</h3>
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">HSM Command Flow</h3>
                     <ul class="flow-list">${data.hsmFlow.map(f => '<li>' + f + '</li>').join('')}</ul>
 
-                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);"> Message (Hex)</h3>
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">Message (Hex)</h3>
                     <div class="hex-display">${data.messageHex}</div>
 
-                    <h3 style="margin-top: 12px; font-size: 14px; color: var(--text);"> Digital Signature (Hex)</h3>
+                    <h3 style="margin-top: 12px; font-size: 14px; color: var(--text);">Digital Signature (Hex)</h3>
                     <div class="hex-display">${data.signatureHex}</div>
                 `;
             } else {
-                div.innerHTML = `<div class="result-box result-error"> SIGNING FAILED\n\n${data.error}\n\nError Code: ${data.errorCode || 'N/A'}\nDuration: ${data.durationMs}ms</div>`;
+                div.innerHTML = `<div class="result-box result-error">SIGNING FAILED\n\n${data.error}\nCode: ${data.errorCode || 'N/A'} | ${data.durationMs}ms</div>`;
             }
         } catch (e) {
-            div.innerHTML = `<div class="result-box result-error"> ERROR\n\n${e.message}</div>`;
+            div.innerHTML = `<div class="result-box result-error">ERROR\n\n${e.message}</div>`;
         }
 
         btn.disabled = false;
         btn.innerHTML = ' Sign Message via HSM';
+    }
+
+    // ===== VERIFICATION mode toggle =====
+    function setVerifyMode(mode) {
+        state.verifyMode = mode;
+        document.getElementById('vmodeBtnFull').classList.toggle('active',    mode === 'full');
+        document.getElementById('vmodeBtnEo').classList.toggle('active',      mode === 'eo-only');
+        document.getElementById('verifyInputFull').style.display   = mode === 'full'    ? 'block' : 'none';
+        document.getElementById('verifyInputEoOnly').style.display = mode === 'eo-only' ? 'block' : 'none';
+        document.getElementById('vmodeDesc').textContent = mode === 'full'
+            ? 'Runs EO then EY. The EO-formatted key is returned — copy and save it for future EY-only calls.'
+            : 'Skips EO. Paste your saved EO-formatted key and go straight to EY verification.';
+        const btn = document.getElementById('btnVerifyCorrect');
+        btn.innerHTML = mode === 'full' ? ' Verify via HSM (EO + EY)' : '⚡ Verify via HSM (EY only)';
     }
 
     // ===== VERIFICATION =====
@@ -471,56 +647,120 @@ Message: ${data.messageLength} bytes → Signature: ${data.signatureLength} byte
         const btn = document.getElementById('btnVerifyCorrect');
         const div = document.getElementById('verifyResult');
         const message = document.getElementById('verifyMessage').value;
-        const sigHex = document.getElementById('verifySignatureHex').value.trim();
-        const pubKeyHex = document.getElementById('verifyPublicKeyHex').value.trim();
+        const sigHex  = document.getElementById('verifySignatureHex').value.trim();
 
-        if (!message || !sigHex || !pubKeyHex) {
-            alert('Please fill in all fields: message, signature, and public key.');
+        if (!message || !sigHex) {
+            alert('Please fill in the message and signature fields.');
             return;
         }
 
+        const body = {
+            message:      message,
+            signatureHex: sigHex,
+            hashId:  document.getElementById('verifyHashId').value,
+            padMode: document.getElementById('verifyPadMode').value
+        };
+
+        if (state.verifyMode === 'full') {
+            const pubKeyHex = document.getElementById('verifyPublicKeyHex').value.trim();
+            if (!pubKeyHex) { alert('Please paste the raw DER public key hex.'); return; }
+            body.publicKeyHex = pubKeyHex;
+        } else {
+            // EY-only mode: single field handles both Key Block and Variant.
+            // Key Block blobs start with hex "53" (ASCII 'S').
+            // Variant combined = MAC (first 8 hex chars) + DER (rest) — sent as eoCombinedHex.
+            const eoKeyHex = document.getElementById('verifyEoPublicKeyHex').value.trim();
+            if (!eoKeyHex) { alert('Please paste your saved EO key hex.'); return; }
+            const isKeyBlockBlob = eoKeyHex.toUpperCase().startsWith('53');
+            if (isKeyBlockBlob) {
+                body.eoPublicKeyHex = eoKeyHex;   // Key Block: S-prefixed blob
+            } else {
+                body.eoCombinedHex = eoKeyHex;    // Variant: first 8 chars = MAC, rest = DER
+            }
+        }
+
         btn.disabled = true;
-        btn.innerHTML = '<span class="spinner"></span> Verifying...';
-        div.innerHTML = '<div class="result-box result-neutral">Sending EO + EY commands to HSM...</div>';
+        const modeLabel = state.verifyMode === 'full' ? 'EO + EY' : 'EY only';
+        btn.innerHTML = `<span class="spinner"></span> Verifying (${modeLabel})…`;
+        div.innerHTML = `<div class="result-box result-neutral">Sending ${modeLabel} commands to HSM…</div>`;
 
         try {
-            const data = await apiCall('/api/verify', {
-                message: message,
-                signatureHex: sigHex,
-                publicKeyHex: pubKeyHex,
-                hashId: document.getElementById('verifyHashId').value,
-                padMode: document.getElementById('verifyPadMode').value
-            });
+            const data = await apiCall('/api/verify', body);
 
             if (data.success) {
-                const verdictClass = data.valid ? 'verdict-valid' : 'verdict-invalid';
-                const verdictIcon = data.valid ? '' : '';
+                const vClass = data.valid ? 'verdict-valid' : 'verdict-invalid';
+
+                // Build EO key save section (only when EO was actually run)
+                let eoSaveHtml = '';
+                if (!data.skippedEo) {
+                    if (data.eoPublicKeyHex) {
+                        // Key Block — single blob
+                        eoSaveHtml = `
+                            <div style="margin-top: 16px; padding: 14px 16px; background: var(--yellow-bg);
+                                border: 1px solid rgba(251,191,36,0.3); border-radius: 8px;">
+                                <div style="font-size: 13px; font-weight: 600; color: var(--yellow); margin-bottom: 6px;">
+                                    💾 Save this EO Key for future EY-only verification
+                                </div>
+                                <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 6px;">
+                                    Key Block (S-prefixed blob) — paste into the "EY only" field next time
+                                </div>
+                                <div class="hex-display" id="eoKeyOutput">${data.eoPublicKeyHex}</div>
+                                <button class="copy-btn" onclick="copyEoKey('eoKeyOutput')" style="margin-top: 8px;">📋 Copy EO Key</button>
+                            </div>`;
+                    } else if (data.eoCombinedHex) {
+                        // Variant — one combined string (MAC 8 chars + DER)
+                        eoSaveHtml = `
+                            <div style="margin-top: 16px; padding: 14px 16px; background: var(--yellow-bg);
+                                border: 1px solid rgba(251,191,36,0.3); border-radius: 8px;">
+                                <div style="font-size: 13px; font-weight: 600; color: var(--yellow); margin-bottom: 6px;">
+                                    💾 Save this EO Key for future EY-only verification
+                                </div>
+                                <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 6px;">
+                                    Variant LMK combined: first 8 chars = MAC (${data.eoMacHex}), rest = DER public key — paste into the "EY only" field next time
+                                </div>
+                                <div class="hex-display" id="eoKeyOutput">${data.eoCombinedHex}</div>
+                                <button class="copy-btn" onclick="copyEoKey('eoKeyOutput')" style="margin-top: 8px;">📋 Copy EO Key</button>
+                            </div>`;
+                    }
+                }
 
                 div.innerHTML = `
-                    <div class="verdict ${verdictClass}">
-                        <h3>${verdictIcon} ${data.verdict}</h3>
+                    <div class="verdict ${vClass}">
+                        <h3>${data.verdict}</h3>
                         <p>${data.explanation}</p>
                     </div>
-
                     <div class="result-box ${data.valid ? 'result-success' : 'result-error'}" style="margin-top: 12px;">
 HSM Response Details:
+  Mode: ${data.skippedEo ? 'EY only (EO skipped — used saved EO key)' : 'Full EO + EY'}
   Error Code: ${data.errorCode}
   Description: ${data.errorDescription}
   Duration: ${data.durationMs}ms
   Raw Response (Hex): ${data.rawResponseHex}</div>
-
-                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);"> HSM Command Flow</h3>
+                    ${eoSaveHtml}
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">HSM Command Flow</h3>
                     <ul class="flow-list">${data.hsmFlow.map(f => '<li>' + f + '</li>').join('')}</ul>
                 `;
             } else {
-                div.innerHTML = `<div class="result-box result-error"> VERIFICATION COMMAND FAILED\n\n${data.error}\n\nError Code: ${data.errorCode || 'N/A'}\nDuration: ${data.durationMs}ms</div>`;
+                div.innerHTML = `<div class="result-box result-error">VERIFICATION COMMAND FAILED\n\n${data.error}\nCode: ${data.errorCode || 'N/A'} | ${data.durationMs}ms</div>`;
             }
         } catch (e) {
-            div.innerHTML = `<div class="result-box result-error"> ERROR\n\n${e.message}</div>`;
+            div.innerHTML = `<div class="result-box result-error">ERROR\n\n${e.message}</div>`;
         }
 
         btn.disabled = false;
-        btn.innerHTML = ' Verify Signature via HSM';
+        btn.innerHTML = state.verifyMode === 'full' ? ' Verify via HSM (EO + EY)' : '⚡ Verify via HSM (EY only)';
+    }
+
+    function copyEoKey(elId) {
+        const el = document.getElementById(elId || 'eoKeyOutput');
+        if (el) {
+            navigator.clipboard.writeText(el.textContent).then(() => {
+                const btn = event.currentTarget;
+                const orig = btn.textContent;
+                btn.textContent = '✓ Copied!';
+                setTimeout(() => { btn.textContent = orig; }, 2000);
+            });
+        }
     }
 
     // ===== CSR GENERATION =====
@@ -529,44 +769,41 @@ HSM Response Details:
         const div = document.getElementById('csrResult');
 
         btn.disabled = true;
-        btn.innerHTML = '<span class="spinner"></span> Generating CSR...';
-        div.innerHTML = '<div class="result-box result-neutral">Sending QE command to HSM...</div>';
+        btn.innerHTML = '<span class="spinner"></span> Generating CSR…';
+        div.innerHTML = '<div class="result-box result-neutral">Sending QE command to HSM…</div>';
 
         try {
             const data = await apiCall('/api/generate-csr', {
-                commonName: document.getElementById('csrCN').value,
+                commonName:   document.getElementById('csrCN').value,
                 organization: document.getElementById('csrO').value,
-                orgUnit: document.getElementById('csrOU').value,
-                locality: document.getElementById('csrL').value,
-                state: document.getElementById('csrST').value,
-                country: document.getElementById('csrC').value,
-                hashId: document.getElementById('csrHashId').value,
-                padMode: document.getElementById('csrPadMode').value,
+                orgUnit:      document.getElementById('csrOU').value,
+                locality:     document.getElementById('csrL').value,
+                state:        document.getElementById('csrST').value,
+                country:      document.getElementById('csrC').value,
+                hashId:       document.getElementById('csrHashId').value,
+                padMode:      document.getElementById('csrPadMode').value,
                 outputFormat: document.getElementById('csrOutputFormat').value
             });
 
             if (data.success) {
                 const subj = data.subjectDN;
                 div.innerHTML = `
-                    <div class="result-box result-success"> CSR GENERATED SUCCESSFULLY
-Duration: ${data.durationMs}ms | Format: Format: ${data.csrFormat}
-CSR Size: ${data.csrLength} bytes
+                    <div class="result-box result-success">CSR GENERATED SUCCESSFULLY
+Duration: ${data.durationMs}ms | Format: ${data.csrFormat} | Size: ${data.csrLength} bytes
 Subject: CN=${subj.CN}, O=${subj.O}, OU=${subj.OU}, L=${subj.L}, ST=${subj.ST}, C=${subj.C}</div>
-
-                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);"> HSM Command Flow</h3>
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">HSM Command Flow</h3>
                     <ul class="flow-list">${data.hsmFlow.map(f => '<li>' + f + '</li>').join('')}</ul>
-
-                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);"> Certificate Signing Request</h3>
+                    <h3 style="margin-top: 16px; font-size: 14px; color: var(--text);">Certificate Signing Request</h3>
                     <div style="position: relative;">
                         <button class="copy-btn" onclick="copyCsr()" style="position: absolute; top: 8px; right: 8px;">Copy CSR</button>
                         <div class="hex-display" id="csrOutput" style="max-height: 300px; color: var(--green); white-space: pre-wrap;">${data.csrData}</div>
                     </div>
                 `;
             } else {
-                div.innerHTML = `<div class="result-box result-error"> CSR GENERATION FAILED\n\n${data.error}\n\nError Code: ${data.errorCode || 'N/A'}\nDuration: ${data.durationMs}ms</div>`;
+                div.innerHTML = `<div class="result-box result-error">CSR GENERATION FAILED\n\n${data.error}\nCode: ${data.errorCode || 'N/A'} | ${data.durationMs}ms</div>`;
             }
         } catch (e) {
-            div.innerHTML = `<div class="result-box result-error"> ERROR\n\n${e.message}</div>`;
+            div.innerHTML = `<div class="result-box result-error">ERROR\n\n${e.message}</div>`;
         }
 
         btn.disabled = false;
@@ -582,25 +819,25 @@ Subject: CN=${subj.CN}, O=${subj.O}, OU=${subj.OU}, L=${subj.L}, ST=${subj.ST}, 
         });
     }
 
-    // Fill public key fields
-    function fillCorrectKey() {
-        if (state.publicKeyHex) {
-            document.getElementById('verifyPublicKeyHex').value = state.publicKeyHex;
+    // ===== Verify tab — fill raw DER public key from a generated slot =====
+    function fillKeyFromSlot(slot) {
+        const kp = state.keyPairs[slot - 1];
+        if (kp && kp.publicKeyHex) {
+            document.getElementById('verifyPublicKeyHex').value = kp.publicKeyHex;
         } else {
-            alert('No key pair generated yet. Go to Step 1 first.');
+            alert('KP-' + slot + ' has not been generated in this session. Go to Step 1 first, or paste the key directly.');
         }
     }
 
     function fillWrongKey() {
-        // Generate a fake public key (just corrupt the real one, or use a hardcoded dummy)
-        if (state.publicKeyHex) {
-            // Corrupt the public key by flipping some bytes in the middle
-            let wrongKey = state.publicKeyHex;
+        // Pick any available key and corrupt its middle bytes
+        const available = state.keyPairs.find(kp => kp !== null && kp.publicKeyHex);
+        if (available) {
+            let wrongKey = available.publicKeyHex;
             let mid = Math.floor(wrongKey.length / 2);
             wrongKey = wrongKey.substring(0, mid - 8) + 'DEADBEEFCAFEBABE' + wrongKey.substring(mid + 8);
             document.getElementById('verifyPublicKeyHex').value = wrongKey;
         } else {
-            // Use a minimal dummy DER public key
             document.getElementById('verifyPublicKeyHex').value =
                 '30820122300D06092A864886F70D01010105000382010F003082010A02820101' +
                 '00DEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABEDEADBEEFCAFEBABE' +
@@ -614,22 +851,42 @@ Subject: CN=${subj.CN}, O=${subj.O}, OU=${subj.OU}, L=${subj.L}, ST=${subj.ST}, 
         }
     }
 
-    // Load state on page load
+    // ===== Load state on page load =====
     async function loadState() {
         try {
             const resp = await fetch('/api/state');
             const data = await resp.json();
+            // Server only remembers the last key pair (lastKeyPair).
+            // Restore the public key into slot 1 so the fill buttons work.
+            // Private key is not exposed by /api/state — user must paste it from their archive.
             if (data.hasKeyPair) {
-                state.publicKeyHex = data.publicKeyHex;
-                document.getElementById('keyStatus').textContent = 'RSA-' + data.modulusBits + ' ✓';
+                state.keyPairs[0] = {
+                    publicKeyHex:  data.publicKeyHex,
+                    privateKeyHex: null,   // not available via /api/state — paste from archive
+                    modulusBits:   data.modulusBits,
+                    lmkScheme:     data.lmkScheme,
+                    isKeyBlock:    data.isKeyBlock
+                };
+                const badge = document.getElementById('kpBadge-1');
+                badge.textContent = 'RSA-' + data.modulusBits + ' (server)';
+                badge.classList.add('ready');
+                document.getElementById('kpCard-1').classList.add('generated');
+                const statusEl = document.getElementById('kpStatus-1');
+                statusEl.textContent = 'RSA-' + data.modulusBits + ' ✓';
+                statusEl.style.color = 'var(--green)';
                 document.getElementById('connDot').className = 'status-dot green';
                 document.getElementById('connStatus').textContent = 'Connected';
+                const sumEl = document.getElementById('kpSummary-1');
+                sumEl.style.display = 'block';
+                sumEl.classList.add('ready');
+                sumEl.textContent = 'Restored from server session (pub key only — paste priv key from archive to sign)\n' +
+                        'Scheme: ' + data.lmkScheme + '  |  KeyBlock: ' + data.isKeyBlock;
             }
             if (data.hasSignature) {
-                state.signatureHex = data.signatureHex;
+                state.signatureHex  = data.signatureHex;
                 state.signedMessage = data.signedMessage;
-                document.getElementById('verifyMessage').value = data.signedMessage || '';
-                document.getElementById('verifySignatureHex').value = data.signatureHex || '';
+                document.getElementById('verifyMessage').value      = data.signedMessage || '';
+                document.getElementById('verifySignatureHex').value = data.signatureHex  || '';
             }
             document.getElementById('poolStats').textContent = data.poolStats || '—';
         } catch (e) { /* ignore on first load */ }
